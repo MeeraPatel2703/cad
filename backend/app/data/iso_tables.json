@@ -1,0 +1,104 @@
+{
+  "fits": {
+    "H7/g6": {
+      "type": "clearance",
+      "description": "Sliding fit – good for precision location",
+      "clearance_min": 0.005,
+      "clearance_max": 0.040,
+      "examples": ["precision bearings", "spigot locations"]
+    },
+    "H7/h6": {
+      "type": "transition",
+      "description": "Locational fit – snug but can assemble by hand",
+      "clearance_min": 0.0,
+      "clearance_max": 0.025,
+      "examples": ["dowel pins", "locating features"]
+    },
+    "H7/k6": {
+      "type": "transition",
+      "description": "Locational transition – light press or push fit",
+      "clearance_min": -0.009,
+      "clearance_max": 0.016,
+      "examples": ["gear hubs", "coupling halves"]
+    },
+    "H7/n6": {
+      "type": "interference",
+      "description": "Light press fit – requires assembly force",
+      "clearance_min": -0.020,
+      "clearance_max": 0.005,
+      "examples": ["bearing seats", "bushings"]
+    },
+    "H7/p6": {
+      "type": "interference",
+      "description": "Medium press fit – reliable interference",
+      "clearance_min": -0.027,
+      "clearance_max": -0.002,
+      "examples": ["permanent bearing mounts", "shaft collars"]
+    },
+    "H8/f7": {
+      "type": "clearance",
+      "description": "Easy running fit – for continuous rotation",
+      "clearance_min": 0.020,
+      "clearance_max": 0.064,
+      "examples": ["journal bearings", "general rotation"]
+    },
+    "H8/e8": {
+      "type": "clearance",
+      "description": "Running fit with substantial clearance",
+      "clearance_min": 0.040,
+      "clearance_max": 0.112,
+      "examples": ["loose bearings", "high-speed shafts"]
+    },
+    "H9/d9": {
+      "type": "clearance",
+      "description": "Free running fit",
+      "clearance_min": 0.065,
+      "clearance_max": 0.195,
+      "examples": ["agricultural equipment", "conveyor rollers"]
+    },
+    "H11/c11": {
+      "type": "clearance",
+      "description": "Loose fit for easy assembly",
+      "clearance_min": 0.120,
+      "clearance_max": 0.480,
+      "examples": ["pivot pins", "clevis joints"]
+    },
+    "H7/f6": {
+      "type": "clearance",
+      "description": "Close running fit – minimal play",
+      "clearance_min": 0.010,
+      "clearance_max": 0.040,
+      "examples": ["machine tool spindles"]
+    },
+    "H7/js6": {
+      "type": "transition",
+      "description": "Centered transition – equal chance clearance or interference",
+      "clearance_min": -0.006,
+      "clearance_max": 0.019,
+      "examples": ["interchangeable parts"]
+    }
+  },
+  "tolerance_grades": {
+    "IT6": {"range_mm": "6-10μm", "application": "Precision fits, gauges"},
+    "IT7": {"range_mm": "10-16μm", "application": "Standard fits, bearings"},
+    "IT8": {"range_mm": "16-25μm", "application": "General engineering"},
+    "IT9": {"range_mm": "25-40μm", "application": "Machined parts"},
+    "IT10": {"range_mm": "40-64μm", "application": "Milled/turned parts"},
+    "IT11": {"range_mm": "64-100μm", "application": "Rough machining"},
+    "IT12": {"range_mm": "100-160μm", "application": "Sheet metal, stamping"}
+  },
+  "surface_finish": {
+    "N1": {"ra_um": 0.025, "process": "Superfinishing, lapping"},
+    "N2": {"ra_um": 0.05, "process": "Lapping, honing"},
+    "N3": {"ra_um": 0.1, "process": "Honing, fine grinding"},
+    "N4": {"ra_um": 0.2, "process": "Grinding"},
+    "N5": {"ra_um": 0.4, "process": "Fine grinding, polishing"},
+    "N6": {"ra_um": 0.8, "process": "Grinding, fine turning"},
+    "N7": {"ra_um": 1.6, "process": "Finish machining"},
+    "N8": {"ra_um": 3.2, "process": "Turning, milling"},
+    "N9": {"ra_um": 6.3, "process": "Rough machining"},
+    "N10": {"ra_um": 12.5, "process": "Drilling, rough turning"},
+    "N11": {"ra_um": 25.0, "process": "Sawing, casting"},
+    "N12": {"ra_um": 50.0, "process": "Sand casting, forging"}
+  }
+}

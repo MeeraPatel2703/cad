@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #050505;
+  --color-bg-panel: #0a0a0a;
+  --color-bg-card: #111111;
+  --color-bg-hover: #1a1a1a;
+  --color-border: #222222;
+  --color-border-light: #333333;
+  --color-text-primary: #e0e0e0;
+  --color-text-secondary: #888888;
+  --color-text-muted: #555555;
+  --color-accent: #00F0FF;
+  --color-accent-dim: #00F0FF33;
+  --color-warning: #FF6B00;
+  --color-warning-dim: #FF6B0033;
+  --color-critical: #FF0040;
+  --color-critical-dim: #FF004033;
+  --color-success: #00FF88;
+  --color-success-dim: #00FF8833;
+  --color-sherlock: #00FF88;
+  --color-physicist: #A855F7;
+  --color-reporter: #FF6B00;
+  --color-ingestor: #00F0FF;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", ui-monospace, monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+.glow-accent {
+  box-shadow: 0 0 15px var(--color-accent-dim), 0 0 30px var(--color-accent-dim);
+}
+.glow-warning {
+  box-shadow: 0 0 15px var(--color-warning-dim), 0 0 30px var(--color-warning-dim);
+}
+.glow-critical {
+  box-shadow: 0 0 15px var(--color-critical-dim), 0 0 30px var(--color-critical-dim);
+}
+.glow-success {
+  box-shadow: 0 0 15px var(--color-success-dim), 0 0 30px var(--color-success-dim);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: "\2588";
+  animation: blink 1s step-end infinite;
+  color: var(--color-accent);
+}
+
+/* Inspection table */
+.inspection-row-selected {
+  background: rgba(0, 240, 255, 0.08) !important;
+  border-left: 2px solid var(--color-accent);
+}
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+/* Agent colors for comparator */
+.text-comparator { color: #E879F9; }
