@@ -11,6 +11,10 @@ class FindingType(str, Enum):
     OMISSION = "OMISSION"
     PHYSICS_FAIL = "PHYSICS_FAIL"
     DECIMAL_ERROR = "DECIMAL_ERROR"
+    STACK_UP_ERROR = "STACK_UP_ERROR"
+    TOLERANCE_MISSING = "TOLERANCE_MISSING"
+    FIT_ERROR = "FIT_ERROR"
+    MATERIAL_ERROR = "MATERIAL_ERROR"
 
 
 class Severity(str, Enum):
@@ -71,6 +75,10 @@ class AuditFinding(BaseModel):
     source_agent: str = ""
     evidence: dict = Field(default_factory=dict)
     item_number: str | None = None
+    category: str | None = None  # consensus, envelope, omission, decimal, physics
+    zone: str | None = None
+    affected_features: list[str] = Field(default_factory=list)
+    recommendation: str | None = None
 
 
 class AuditState(TypedDict, total=False):

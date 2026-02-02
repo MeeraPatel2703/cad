@@ -36,6 +36,34 @@ REMAINING CHECK DIMENSIONS:
 """
 
 
+def _to_float(val) -> float | None:
+    """Safely convert a value to float, returning None if not possible."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        # Try to extract numeric value from string
+        import re
+        # Handle fractions like "1/2", "3/4"
+        frac_match = re.match(r'^(\d+)/(\d+)$', val.strip())
+        if frac_match:
+            return float(frac_match.group(1)) / float(frac_match.group(2))
+        # Handle mixed fractions like "1 1/2"
+        mixed_match = re.match(r'^(\d+)\s+(\d+)/(\d+)$', val.strip())
+        if mixed_match:
+            return float(mixed_match.group(1)) + float(mixed_match.group(2)) / float(mixed_match.group(3))
+        # Try direct conversion
+        try:
+            # Remove common suffixes/units
+            cleaned = re.sub(r'[^\d.\-+]', '', val.split()[0] if val.split() else val)
+            if cleaned:
+                return float(cleaned)
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
 def _find_best_match(
     master_dim: dict,
     check_dims: list[dict],
@@ -44,8 +72,10 @@ def _find_best_match(
     """Multi-pass deterministic matching for a single master dimension."""
     m_item = master_dim.get("item_number")
     m_zone = master_dim.get("zone")
-    m_val = master_dim.get("value", 0)
-    m_coords = master_dim.get("coordinates", {})
+    m_val_raw = master_dim.get("value")
+    m_val = _to_float(m_val_raw)
+    m_val = m_val if m_val is not None else 0
+    m_coords = master_dim.get("coordinates") or {}
 
     best_idx = None
     best_score = -1
@@ -54,7 +84,9 @@ def _find_best_match(
         if i in used_indices:
             continue
 
-        c_val = c_dim.get("value", 0)
+        c_val_raw = c_dim.get("value")
+        c_val = _to_float(c_val_raw)
+        c_val = c_val if c_val is not None else 0
         score = 0
 
         # Pass 1: item_number + zone match
@@ -107,10 +139,14 @@ def _find_best_match(
 
 def _evaluate_tolerance(master_dim: dict, check_dim: dict) -> tuple[str, float | None]:
     """Evaluate pass/fail/warning for a matched dimension pair. Returns (status, deviation)."""
-    nominal = master_dim.get("nominal") or master_dim.get("value", 0)
-    upper = master_dim.get("upper_tol") or 0
-    lower = master_dim.get("lower_tol") or 0
-    actual = check_dim.get("value", 0)
+    nominal_raw = master_dim.get("nominal") or master_dim.get("value")
+    nominal = _to_float(nominal_raw)
+    nominal = nominal if nominal is not None else 0
+    upper = _to_float(master_dim.get("upper_tol")) or 0
+    lower = _to_float(master_dim.get("lower_tol")) or 0
+    actual_raw = check_dim.get("value")
+    actual = _to_float(actual_raw)
+    actual = actual if actual is not None else 0
 
     if nominal == 0:
         return "pending", None

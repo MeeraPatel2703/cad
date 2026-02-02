@@ -8,39 +8,75 @@ import google.generativeai as genai
 from app.config import settings
 from app.agents.state import AuditState, AuditFinding, FindingType, Severity
 
-SHERLOCK_PROMPT = """You are Sherlock, an expert mechanical engineering auditor.
-You have been given structured data extracted from a mechanical drawing.
+SHERLOCK_PROMPT = """You are Sherlock, an expert mechanical engineering auditor specializing in GD&T,
+ASME Y14.5, and ISO drawing standards. You have been given structured data extracted from a mechanical drawing.
 
-Perform these verification checks:
+Perform these verification checks IN ORDER:
 
-1. **Consensus Audit**: Find any dimension that appears in multiple views.
-   Verify they match. Flag any mismatches with coordinates of both occurrences.
+## 1. CONSENSUS AUDIT (Cross-View Verification)
+Find dimensions that appear in multiple views and verify consistency:
+- Same feature dimensioned in different views must match exactly
+- Section views must agree with parent views
+- Detail views must match their source views
+- Flag ANY numeric discrepancy, even 0.001mm differences
 
-2. **Envelope Verification**: Check that child/detail dimensions sum correctly
-   within parent/assembly dimensions. A shaft cannot be larger than its housing bore.
+## 2. ENVELOPE VERIFICATION (Dimensional Stack-Up)
+Check geometric containment and stack-up logic:
+- Child dimensions must sum to parent dimension (within tolerance)
+- Shaft OD must be less than bore ID for clearance fits
+- Interference fits: shaft must be larger than bore by specified amount
+- Hole patterns: verify bolt circle diameter vs hole positions
+- Assembly dimensions: components must fit within overall envelope
 
-3. **Omission Detection**: Identify any features or parts that are missing:
-   - Dimensions without tolerances on critical fits
-   - Parts without material specification
-   - Weld symbols without size
-   - Missing surface finish callouts on mating surfaces
-   - Items in part list not referenced in drawing views
+## 3. OMISSION DETECTION (Missing Critical Information)
+Identify missing information per ASME Y14.5 / ISO 1101:
+- **Critical fits without tolerance**: H7/g6, press fits, sliding fits MUST have tolerance class
+- **Threaded holes without depth or thread spec**: Must specify thread size, pitch, depth
+- **Bores/shafts without surface finish**: Mating surfaces need Ra callouts
+- **Welds without size**: Fillet welds need leg size, groove welds need depth
+- **Parts without material**: Every part needs material specification
+- **Missing datums**: GD&T callouts need datum references
+- **Incomplete hole callouts**: Need diameter, depth (THRU or blind depth), quantity
 
-4. **Decimal/Unit Consistency**: Check all dimensions use consistent decimal places
-   and units. Flag mixed metric/imperial without conversion notes.
+## 4. DECIMAL/UNIT CONSISTENCY
+Check dimensional consistency:
+- Mixed metric/imperial without conversion notes is ERROR
+- Inconsistent decimal places (some 0.1, some 0.001) needs explanation
+- Angular dimensions should be consistent (all decimal degrees OR all DMS)
 
-Return your findings as a JSON array of objects:
+## FINDING TYPES (use exactly these):
+- **MISMATCH**: Same feature has different values in different locations
+- **OMISSION**: Required information is missing from the drawing
+- **DECIMAL_ERROR**: Unit or decimal place inconsistency
+- **STACK_UP_ERROR**: Dimensions don't add up correctly
+- **TOLERANCE_MISSING**: Critical feature lacks tolerance specification
+
+## SEVERITY LEVELS:
+- **critical**: Will cause part rejection or assembly failure (wrong dimension, impossible fit)
+- **warning**: May cause manufacturing issues or ambiguity (missing tolerance on non-critical feature)
+- **info**: Best practice violation, documentation improvement needed
+
+Return findings as JSON array:
 [{{
-  "finding_type": "MISMATCH"|"OMISSION"|"DECIMAL_ERROR",
-  "severity": "critical"|"warning"|"info",
-  "description": "Clear engineering description of the issue",
+  "finding_type": "MISMATCH|OMISSION|DECIMAL_ERROR|STACK_UP_ERROR|TOLERANCE_MISSING",
+  "severity": "critical|warning|info",
+  "category": "consensus|envelope|omission|decimal",
+  "description": "Detailed engineering description with specific values",
+  "affected_features": ["feature names or dimension values involved"],
   "coordinates": {{"x": 0, "y": 0}},
   "item_number": "1"|null,
-  "evidence": {{"expected": "...", "found": "...", "views": ["Top View", "Section A-A"]}}
+  "zone": "zone name if applicable",
+  "evidence": {{
+    "expected": "what should be there",
+    "found": "what was actually found (or 'missing')",
+    "views": ["view names where issue appears"],
+    "standard_reference": "ASME Y14.5 section or ISO standard if applicable"
+  }},
+  "recommendation": "specific action to fix this issue"
 }}]
 
-Be specific. Reference item numbers and zone names. Every finding must have evidence.
-If no issues found for a check category, that's fine – don't fabricate findings.
+Be thorough but precise. Every finding MUST have concrete evidence with actual values.
+Do NOT fabricate issues - only report genuine problems found in the data.
 
 DRAWING DATA:
 """
@@ -85,14 +121,24 @@ async def run_sherlock(state: AuditState) -> AuditState:
 
     findings = state.get("findings", [])
     for f in raw_findings:
+        # Handle finding_type gracefully - default to OMISSION if unknown
+        try:
+            ftype = FindingType(f.get("finding_type", "OMISSION"))
+        except ValueError:
+            ftype = FindingType.OMISSION
+
         finding = AuditFinding(
-            finding_type=FindingType(f.get("finding_type", "OMISSION")),
+            finding_type=ftype,
             severity=Severity(f.get("severity", "warning")),
             description=f.get("description", ""),
             coordinates=f.get("coordinates") or {},
             source_agent="sherlock",
             evidence=f.get("evidence") or {},
             item_number=f.get("item_number"),
+            category=f.get("category"),
+            zone=f.get("zone"),
+            affected_features=f.get("affected_features") or [],
+            recommendation=f.get("recommendation"),
         )
         findings.append(finding.model_dump())
 
