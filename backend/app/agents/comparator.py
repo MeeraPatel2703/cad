@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Optional, List, Dict, Tuple, Set
 
 import google.generativeai as genai
 
@@ -10,12 +11,17 @@ from app.config import settings
 from app.agents.state import ComparisonState
 
 MATCH_PROMPT = """You are a mechanical engineering dimension matching expert.
-Given UNMATCHED dimensions from a master drawing and REMAINING dimensions from a check drawing,
-match each master dimension to its corresponding check dimension based on:
-- Feature type and description
-- Zone/view location
-- Approximate position on the drawing
-- Similar nominal value (within reason for manufacturing variation)
+The CHECK drawing is a CUSTOMIZED version of the MASTER drawing. Values may intentionally differ.
+
+Match each master dimension to its corresponding check dimension based on:
+1. Feature type (diameter, length, thickness, etc.)
+2. Zone/view location
+3. Position on drawing (approximate)
+4. Part/item it belongs to
+5. Functional purpose (NOT exact value - values may differ intentionally)
+
+IMPORTANT: The check drawing may have DIFFERENT values than master. This is expected.
+Match by WHAT is being measured, not the measurement value itself.
 
 Return a JSON array of matches:
 [{{
@@ -25,18 +31,18 @@ Return a JSON array of matches:
   "reasoning": "Both are bore diameters in the top view at similar positions"
 }}]
 
-Only include matches you are confident about (confidence >= 0.7).
-If a master dimension has no plausible match, omit it.
+Include matches with confidence >= 0.5 (we want to catch intentional deviations).
+If a master dimension truly has no corresponding feature in check, omit it.
 
-UNMATCHED MASTER DIMENSIONS:
+MASTER DIMENSIONS:
 {master_dims}
 
-REMAINING CHECK DIMENSIONS:
+CHECK DIMENSIONS:
 {check_dims}
 """
 
 
-def _to_float(val) -> float | None:
+def _to_float(val) -> Optional[float]:
     """Safely convert a value to float, returning None if not possible."""
     if val is None:
         return None
@@ -66,12 +72,16 @@ def _to_float(val) -> float | None:
 
 def _find_best_match(
     master_dim: dict,
-    check_dims: list[dict],
-    used_indices: set[int],
-) -> tuple[int, dict] | None:
-    """Multi-pass deterministic matching for a single master dimension."""
+    check_dims: List[dict],
+    used_indices: Set[int],
+) -> Optional[Tuple[int, dict]]:
+    """Multi-pass deterministic matching for a single master dimension.
+
+    Matches by FEATURE TYPE and LOCATION, not by value (since check may be customized).
+    """
     m_item = master_dim.get("item_number")
     m_zone = master_dim.get("zone")
+    m_feature = (master_dim.get("feature_type") or "").lower()
     m_val_raw = master_dim.get("value")
     m_val = _to_float(m_val_raw)
     m_val = m_val if m_val is not None else 0
@@ -87,34 +97,45 @@ def _find_best_match(
         c_val_raw = c_dim.get("value")
         c_val = _to_float(c_val_raw)
         c_val = c_val if c_val is not None else 0
+        c_feature = (c_dim.get("feature_type") or "").lower()
         score = 0
 
-        # Pass 1: item_number + zone match
-        if m_item and c_dim.get("item_number") == m_item:
-            score += 5
+        # Feature type match (most important for customized drawings)
+        if m_feature and c_feature:
+            if m_feature == c_feature:
+                score += 6  # Exact feature match
+            elif m_feature in c_feature or c_feature in m_feature:
+                score += 4  # Partial match (e.g., "diameter" in "bore_diameter")
+
+        # Zone match
         if m_zone and c_dim.get("zone") == m_zone:
             score += 3
 
-        # Pass 2: value proximity
+        # Item number match
+        if m_item and c_dim.get("item_number") == m_item:
+            score += 3
+
+        # Value proximity (less strict - customizations expected)
         if m_val != 0 and c_val != 0:
             ratio = abs(m_val - c_val) / max(abs(m_val), 0.001)
-            if ratio < 0.01:       # within 1%
-                score += 4
-            elif ratio < 0.05:     # within 5%
+            if ratio < 0.01:       # within 1% - likely same dimension
                 score += 3
-            elif ratio < 0.20:     # within 20%
+            elif ratio < 0.10:     # within 10%
+                score += 2
+            elif ratio < 0.30:     # within 30% - possible customization
                 score += 1
-            elif ratio > 0.50:     # more than 50% off
-                score -= 5
+            # Don't penalize large differences - may be intentional
 
-        # Pass 3: coordinate proximity
+        # Coordinate proximity
         mx, my = m_coords.get("x", -1), m_coords.get("y", -1)
         cx, cy = c_dim.get("coordinates", {}).get("x", -1), c_dim.get("coordinates", {}).get("y", -1)
         if mx >= 0 and cx >= 0:
             dist = math.hypot(mx - cx, my - cy)
-            if dist < 50:
+            if dist < 100:
+                score += 3
+            elif dist < 250:
                 score += 2
-            elif dist < 150:
+            elif dist < 400:
                 score += 1
 
         # Tolerance class match
@@ -132,13 +153,21 @@ def _find_best_match(
             best_score = score
             best_idx = i
 
-    if best_idx is not None and best_score >= 3:
+    # Lower threshold to catch more matches (customized values will differ)
+    if best_idx is not None and best_score >= 2:
         return best_idx, check_dims[best_idx]
     return None
 
 
-def _evaluate_tolerance(master_dim: dict, check_dim: dict) -> tuple[str, float | None]:
-    """Evaluate pass/fail/warning for a matched dimension pair. Returns (status, deviation)."""
+def _evaluate_tolerance(master_dim: dict, check_dim: dict) -> Tuple[str, Optional[float]]:
+    """Evaluate status for a matched dimension pair.
+
+    Returns (status, deviation) where status is:
+    - "pass": Values match within tolerance
+    - "warning": Values close but borderline
+    - "deviation": Intentional change from master (for review)
+    - "fail": Out of specified tolerance
+    """
     nominal_raw = master_dim.get("nominal") or master_dim.get("value")
     nominal = _to_float(nominal_raw)
     nominal = nominal if nominal is not None else 0
@@ -152,17 +181,19 @@ def _evaluate_tolerance(master_dim: dict, check_dim: dict) -> tuple[str, float |
         return "pending", None
 
     deviation = actual - nominal
+    pct_change = abs(deviation) / abs(nominal) if nominal != 0 else 0
 
-    # If no tolerance specified, check if values match closely
+    # If no tolerance specified, classify by deviation amount
     if upper == 0 and lower == 0:
         if abs(deviation) < 0.001:
             return "pass", deviation
-        elif abs(deviation) / abs(nominal) < 0.01:
+        elif pct_change < 0.01:  # <1% - essentially same
             return "pass", deviation
-        elif abs(deviation) / abs(nominal) < 0.05:
+        elif pct_change < 0.05:  # 1-5% - minor difference
             return "warning", deviation
         else:
-            return "fail", deviation
+            # Significant change - likely intentional customization
+            return "deviation", deviation
 
     # Check against tolerance band
     if lower <= deviation <= upper:
@@ -173,11 +204,16 @@ def _evaluate_tolerance(master_dim: dict, check_dim: dict) -> tuple[str, float |
     if tol_range > 0 and abs(deviation) <= tol_range * 1.2:
         return "warning", deviation
 
-    return "fail", deviation
+    # Outside tolerance - could be intentional customization or error
+    # Use "deviation" for large changes (likely intentional), "fail" for small overruns
+    if pct_change > 0.10:  # >10% change - likely intentional
+        return "deviation", deviation
+    else:
+        return "fail", deviation
 
 
 def _build_comparison(
-    balloon_num: int, master_dim: dict, check_dim: dict | None,
+    balloon_num: int, master_dim: dict, check_dim: Optional[dict],
 ) -> dict:
     """Build a comparison item dict from a master dimension and optional check dimension."""
     nominal = master_dim.get("nominal") or master_dim.get("value", 0)
@@ -236,10 +272,10 @@ def _describe_dimension(dim: dict) -> str:
 
 
 def _generate_balloons(
-    dims: list[dict],
-    comparisons: list[dict],
+    dims: List[dict],
+    comparisons: List[dict],
     role: str,
-) -> list[dict]:
+) -> List[dict]:
     """Generate balloon overlay data for a drawing."""
     balloons = []
     coord_key = "master_coordinates" if role == "master" else "check_coordinates"
@@ -267,9 +303,9 @@ def _generate_balloons(
 
 
 async def _llm_match_dimensions(
-    unmatched: list[tuple[int, dict]],
-    remaining_check: list[dict],
-) -> list[dict]:
+    unmatched: List[Tuple[int, dict]],
+    remaining_check: List[dict],
+) -> List[dict]:
     """Use Gemini to match remaining unmatched dimensions."""
     if not unmatched or not remaining_check:
         return [_build_comparison(bn, md, None) for bn, md in unmatched]
@@ -326,7 +362,7 @@ async def _llm_match_dimensions(
         mi = m.get("master_index")
         ci = m.get("check_index")
         conf = m.get("confidence", 0)
-        if mi is not None and ci is not None and conf >= 0.7:
+        if mi is not None and ci is not None and conf >= 0.5:
             if mi < len(unmatched) and ci < len(remaining_check):
                 bn, md = unmatched[mi]
                 cd = remaining_check[ci]
@@ -352,7 +388,7 @@ async def run_comparator(state: ComparisonState) -> ComparisonState:
     # Phase 1: Deterministic matching
     comparisons = []
     unmatched_master = []
-    used_check_indices: set[int] = set()
+    used_check_indices: Set[int] = set()
 
     for i, m_dim in enumerate(master_dims):
         balloon_num = i + 1
@@ -383,16 +419,22 @@ async def run_comparator(state: ComparisonState) -> ComparisonState:
     pass_count = sum(1 for c in comparisons if c["status"] == "pass")
     fail_count = sum(1 for c in comparisons if c["status"] == "fail")
     warning_count = sum(1 for c in comparisons if c["status"] == "warning")
+    deviation_count = sum(1 for c in comparisons if c["status"] == "deviation")
     not_found = sum(1 for c in comparisons if c["status"] == "not_found")
     total = len(comparisons)
+
+    # Score: pass + deviations (intentional changes are OK) vs total matched
+    matched = total - not_found
+    score = round(((pass_count + deviation_count) / max(matched, 1)) * 100, 1) if matched > 0 else 0
 
     summary = {
         "total_dimensions": total,
         "pass": pass_count,
         "fail": fail_count,
         "warning": warning_count,
+        "deviation": deviation_count,
         "not_found": not_found,
-        "score": round((pass_count / max(total, 1)) * 100, 1),
+        "score": score,
     }
 
     log_entry = {
@@ -400,11 +442,12 @@ async def run_comparator(state: ComparisonState) -> ComparisonState:
         "action": "dimension_comparison",
         "master_dims": len(master_dims),
         "check_dims": len(check_dims),
-        "matched": total - not_found,
+        "matched": matched,
         "not_found": not_found,
         "pass": pass_count,
         "fail": fail_count,
         "warning": warning_count,
+        "deviation": deviation_count,
     }
 
     agent_log = list(state.get("agent_log", []))

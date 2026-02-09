@@ -1,7 +1,12 @@
 """Inspection session routes – master/check drawing comparison workflow."""
+from __future__ import annotations
+
 import asyncio
+import logging
+import traceback
 import uuid
 from pathlib import Path
+from typing import Tuple
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -30,7 +35,10 @@ from app.services.vector_store import store_machine_state
 router = APIRouter()
 
 
-def _save_file(file_content: bytes, filename: str) -> tuple[uuid.UUID, Path]:
+logger = logging.getLogger(__name__)
+
+
+def _save_file(file_content: bytes, filename: str) -> Tuple[uuid.UUID, Path]:
     """Save uploaded file to disk. Returns (file_id, path)."""
     file_id = uuid.uuid4()
     ext = Path(filename).suffix
@@ -102,6 +110,8 @@ async def _ingest_master(drawing_id: str, file_path: str, session_id: str):
         )
 
     except Exception as e:
+        logger.error(f"Master ingestion failed: {e}")
+        logger.error(traceback.format_exc())
         await manager.send_session_event(sid, "system", "error", {"message": str(e)})
 
 
@@ -187,6 +197,8 @@ async def _run_comparison_pipeline(session_id: str, master_drawing_id: str, chec
             await db.commit()
 
     except Exception as e:
+        logger.error(f"Comparison pipeline failed for session {session_id}: {e}")
+        logger.error(traceback.format_exc())
         await manager.send_session_event(sid, "system", "error", {"message": str(e)})
         async with async_session() as db:
             row = await db.execute(select(InspectionSession).where(InspectionSession.id == sid))
@@ -377,6 +389,52 @@ async def rerun_comparison(
     )
 
     return {"status": "started", "session_id": str(session_id)}
+
+
+@router.delete("/inspection/session/{session_id}")
+async def delete_inspection_session(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an inspection session and its associated data."""
+    result = await db.execute(select(InspectionSession).where(InspectionSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Delete comparison items first (foreign key constraint)
+    await db.execute(
+        ComparisonItem.__table__.delete().where(ComparisonItem.session_id == session_id)
+    )
+
+    # Optionally delete associated drawings and files
+    drawing_ids = []
+    if session.master_drawing_id:
+        drawing_ids.append(session.master_drawing_id)
+    if session.check_drawing_id:
+        drawing_ids.append(session.check_drawing_id)
+
+    for drawing_id in drawing_ids:
+        result = await db.execute(select(Drawing).where(Drawing.id == drawing_id))
+        drawing = result.scalar_one_or_none()
+        if drawing:
+            # Delete files from disk
+            file_path = Path(drawing.file_path)
+            if file_path.exists():
+                file_path.unlink()
+            # Also delete cached PNG if exists
+            png_path = file_path.with_suffix(".png")
+            if png_path.exists():
+                png_path.unlink()
+            # Delete drawing record
+            await db.delete(drawing)
+
+    # Delete the session
+    await db.delete(session)
+    await db.commit()
+
+    logger.info(f"Deleted inspection session {session_id}")
+    return {"status": "deleted", "session_id": str(session_id)}
 
 
 @router.get("/inspection/session/{session_id}/image/{role}")

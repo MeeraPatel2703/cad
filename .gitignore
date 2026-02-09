@@ -8,3 +8,5 @@ dist/
 venv/
 *.egg-info/
 .DS_Store
+*.db
+*.png

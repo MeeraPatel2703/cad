@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import json
 import uuid
+from typing import Optional, List, Dict
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -7,7 +10,7 @@ from chromadb.config import Settings as ChromaSettings
 from app.config import settings
 
 
-_client: chromadb.ClientAPI | None = None
+_client: Optional[chromadb.ClientAPI] = None
 
 
 def get_chroma_client() -> chromadb.ClientAPI:
@@ -38,7 +41,7 @@ def store_machine_state(drawing_id: uuid.UUID, machine_state: dict):
     )
 
 
-def search_similar(query_text: str, n_results: int = 5) -> list[dict]:
+def search_similar(query_text: str, n_results: int = 5) -> List[Dict]:
     collection = get_collection()
     results = collection.query(query_texts=[query_text], n_results=n_results)
     return [

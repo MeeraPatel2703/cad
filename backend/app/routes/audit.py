@@ -1,4 +1,6 @@
+import logging
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -10,6 +12,7 @@ from app.models import Drawing, AuditResult
 from app.schemas import DrawingOut, DrawingDetail, AuditResultOut, AuditStatusOut
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/drawings", response_model=list[DrawingOut])
@@ -54,3 +57,34 @@ async def audit_findings(drawing_id: uuid.UUID, db: AsyncSession = Depends(get_d
     )
     findings = result.scalars().all()
     return findings
+
+
+@router.delete("/drawings/{drawing_id}")
+async def delete_drawing(drawing_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a drawing and its associated data."""
+    result = await db.execute(select(Drawing).where(Drawing.id == drawing_id))
+    drawing = result.scalar_one_or_none()
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    # Delete audit results first (foreign key constraint)
+    await db.execute(
+        AuditResult.__table__.delete().where(AuditResult.drawing_id == drawing_id)
+    )
+
+    # Delete files from disk
+    if drawing.file_path:
+        file_path = Path(drawing.file_path)
+        if file_path.exists():
+            file_path.unlink()
+        # Also delete cached PNG if exists
+        png_path = file_path.with_suffix(".png")
+        if png_path.exists():
+            png_path.unlink()
+
+    # Delete the drawing record
+    await db.delete(drawing)
+    await db.commit()
+
+    logger.info(f"Deleted drawing {drawing_id}")
+    return {"status": "deleted", "drawing_id": str(drawing_id)}

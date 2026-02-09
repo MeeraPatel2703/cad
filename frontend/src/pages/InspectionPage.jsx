@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { RefreshCw, Clock, ArrowRight } from 'lucide-react'
-import { getInspectionSessions } from '../services/api'
+import { RefreshCw, Clock, ArrowRight, Trash2 } from 'lucide-react'
+import { getInspectionSessions, deleteInspectionSession } from '../services/api'
 import IntegrityBadge from '../components/vault/IntegrityBadge'
 
 export default function InspectionPage() {
@@ -25,6 +25,20 @@ export default function InspectionPage() {
     const interval = setInterval(fetchSessions, 10000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleDelete = async (e, sessionId) => {
+    e.stopPropagation() // Prevent navigation
+    if (!confirm('Delete this inspection session? This cannot be undone.')) {
+      return
+    }
+    try {
+      await deleteInspectionSession(sessionId)
+      setSessions(sessions.filter(s => s.id !== sessionId))
+    } catch (err) {
+      console.error('Failed to delete session:', err)
+      alert('Failed to delete session')
+    }
+  }
 
   const statusBadge = (status) => {
     const styles = {
@@ -82,7 +96,16 @@ export default function InspectionPage() {
           >
             <div className="flex items-start justify-between">
               {statusBadge(s.status)}
-              <ArrowRight size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => handleDelete(e, s.id)}
+                  className="p-1 text-text-muted hover:text-critical opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-critical/10"
+                  title="Delete session"
+                >
+                  <Trash2 size={14} />
+                </button>
+                <ArrowRight size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
             </div>
 
             <div className="flex flex-col gap-1">

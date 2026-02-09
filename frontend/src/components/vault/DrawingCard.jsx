@@ -1,10 +1,17 @@
 import { useNavigate } from 'react-router-dom'
-import { FileText, Clock, ArrowRight } from 'lucide-react'
+import { FileText, Clock, ArrowRight, Trash2 } from 'lucide-react'
 import IntegrityBadge from './IntegrityBadge'
 
-export default function DrawingCard({ drawing }) {
+export default function DrawingCard({ drawing, onDelete }) {
   const navigate = useNavigate()
   const { id, filename, upload_date, integrity_score, status } = drawing
+
+  const handleDelete = (e) => {
+    e.stopPropagation()
+    if (confirm(`Delete "${filename}"? This cannot be undone.`)) {
+      onDelete?.(id)
+    }
+  }
 
   const date = new Date(upload_date).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -22,7 +29,16 @@ export default function DrawingCard({ drawing }) {
           <FileText size={16} className="text-accent/60" />
           <span className="text-xs font-medium truncate max-w-[180px]">{filename}</span>
         </div>
-        <ArrowRight size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDelete}
+            className="p-1 text-text-muted hover:text-critical opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-critical/10"
+            title="Delete drawing"
+          >
+            <Trash2 size={14} />
+          </button>
+          <ArrowRight size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
       </div>
 
       <div className="flex items-center justify-between">

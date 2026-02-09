@@ -28,17 +28,17 @@ Given the machine state and all audit findings, generate:
    - Special inspection notes
 
 Return as JSON:
-{
-  "rfi": {
+{{
+  "rfi": {{
     "reference": "drawing number and revision",
     "date": "ISO date",
-    "items": [{"number": 1, "priority": "Critical", "description": "...", "zone": "...", "resolution": "..."}]
-  },
-  "inspection_sheet": {
+    "items": [{{"number": 1, "priority": "Critical", "description": "...", "zone": "...", "resolution": "..."}}]
+  }},
+  "inspection_sheet": {{
     "drawing_ref": "...",
-    "items": [{"dim_id": 1, "feature": "...", "nominal": 25.0, "tolerance": "+0.021/-0.000", "instrument": "Micrometer", "criteria": "..."}]
-  }
-}
+    "items": [{{"dim_id": 1, "feature": "...", "nominal": 25.0, "tolerance": "+0.021/-0.000", "instrument": "Micrometer", "criteria": "..."}}]
+  }}
+}}
 
 MACHINE STATE:
 {machine_state}

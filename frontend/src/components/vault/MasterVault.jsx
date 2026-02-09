@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getDrawings } from '../../services/api'
+import { getDrawings, deleteDrawing } from '../../services/api'
 import DrawingCard from './DrawingCard'
 import { RefreshCw, Database } from 'lucide-react'
 
@@ -26,6 +26,16 @@ export default function MasterVault() {
     const interval = setInterval(load, 10000)
     return () => clearInterval(interval)
   }, [])
+
+  const handleDelete = async (drawingId) => {
+    try {
+      await deleteDrawing(drawingId)
+      setDrawings(drawings.filter(d => d.id !== drawingId))
+    } catch (err) {
+      console.error('Failed to delete drawing:', err)
+      alert('Failed to delete drawing')
+    }
+  }
 
   if (loading && drawings.length === 0) {
     return (
@@ -55,7 +65,7 @@ export default function MasterVault() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {drawings.map((d) => (
-          <DrawingCard key={d.id} drawing={d} />
+          <DrawingCard key={d.id} drawing={d} onDelete={handleDelete} />
         ))}
       </div>
     </div>

@@ -1,3 +1,5 @@
+import logging
+import traceback
 import uuid
 from pathlib import Path
 
@@ -12,6 +14,8 @@ from app.schemas import UploadResponse
 from app.agents.graph import run_audit
 from app.services.ws_manager import manager
 from app.services.vector_store import store_machine_state
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -65,6 +69,8 @@ async def _run_audit_pipeline(drawing_id: str, file_path: str, db_url: str):
             store_machine_state(uid, final_state["machine_state"])
 
     except Exception as e:
+        logger.error(f"Audit pipeline failed for {drawing_id}: {e}")
+        logger.error(traceback.format_exc())
         uid = uuid.UUID(drawing_id)
         await manager.send_event(uid, "system", "error", {"message": str(e)})
         async with async_session() as session:

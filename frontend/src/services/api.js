@@ -19,6 +19,11 @@ export async function getDrawing(id) {
   return data
 }
 
+export async function deleteDrawing(id) {
+  const { data } = await api.delete(`/drawings/${id}`)
+  return data
+}
+
 export async function getAuditStatus(id) {
   const { data } = await api.get(`/audit/${id}/status`)
   return data
@@ -89,5 +94,10 @@ export function createInspectionSocket(sessionId) {
 
 export async function rerunComparison(sessionId) {
   const { data } = await api.post(`/inspection/session/${sessionId}/rerun`)
+  return data
+}
+
+export async function deleteInspectionSession(sessionId) {
+  const { data } = await api.delete(`/inspection/session/${sessionId}`)
   return data
 }

@@ -1,7 +1,9 @@
 """LangGraph StateGraph wiring – master/check comparison pipeline."""
 from __future__ import annotations
 
+import asyncio
 import uuid
+from typing import Optional, Dict
 
 from langgraph.graph import StateGraph, END
 
@@ -12,14 +14,24 @@ from app.agents.comparison_reporter import run_comparison_reporter
 from app.services.ws_manager import manager
 
 
+def _has_valid_extraction(machine_state: dict) -> bool:
+    """Check if machine_state has actual extracted data (not just empty structure)."""
+    if not machine_state:
+        return False
+    dims = machine_state.get("dimensions", [])
+    parts = machine_state.get("part_list", [])
+    return len(dims) > 0 or len(parts) > 0
+
+
 async def master_ingestor_node(state: ComparisonState) -> ComparisonState:
     session_id = state.get("session_id", "")
 
-    # Skip if master already ingested
-    if state.get("master_machine_state"):
+    # Skip if master already has valid extracted data
+    master_ms = state.get("master_machine_state")
+    if _has_valid_extraction(master_ms):
         await manager.send_session_event(
             uuid.UUID(session_id), "ingestor", "thought",
-            {"message": "Master drawing already ingested, reusing cached data."},
+            {"message": f"Master drawing already ingested ({len(master_ms.get('dimensions', []))} dims), reusing cached data."},
         )
         return state
 
@@ -71,7 +83,41 @@ async def master_ingestor_node(state: ComparisonState) -> ComparisonState:
 
 
 async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
+    import logging
+    import os
+    logger = logging.getLogger(__name__)
+
     session_id = state.get("session_id", "")
+    check_file_path = state.get("check_file_path", "")
+
+    # Validate file path
+    if not check_file_path:
+        logger.error("Check ingestor: check_file_path is empty!")
+        await manager.send_session_event(
+            uuid.UUID(session_id), "ingestor", "error",
+            {"message": "Check file path is missing"},
+        )
+        return {**state, "check_machine_state": {}, "agent_log": state.get("agent_log", [])}
+
+    if not os.path.exists(check_file_path):
+        logger.error(f"Check ingestor: file does not exist: {check_file_path}")
+        await manager.send_session_event(
+            uuid.UUID(session_id), "ingestor", "error",
+            {"message": f"Check file not found: {check_file_path}"},
+        )
+        return {**state, "check_machine_state": {}, "agent_log": state.get("agent_log", [])}
+
+    logger.info(f"Check ingestor: file validated, size={os.path.getsize(check_file_path)} bytes")
+
+    # Delay to avoid rate limits after master ingestion
+    # Gemini free tier has strict rate limits (2 RPM for some models)
+    # Wait 45 seconds to ensure rate limit resets
+    logger.info("Check ingestor: waiting 45s before extraction to avoid rate limits...")
+    await manager.send_session_event(
+        uuid.UUID(session_id), "ingestor", "thought",
+        {"message": "Waiting for API rate limit cooldown (45s)..."},
+    )
+    await asyncio.sleep(45)
 
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
@@ -80,7 +126,7 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
 
     audit_state: AuditState = {
         "drawing_id": state.get("check_drawing_id", ""),
-        "file_path": state["check_file_path"],
+        "file_path": check_file_path,
         "machine_state": None,
         "findings": [],
         "agent_log": [],
@@ -92,8 +138,30 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
         "integrity_score": None,
     }
 
-    result = await run_ingestor(audit_state)
-    ms = result.get("machine_state", {})
+    logger.info(f"Check ingestor: starting extraction for {check_file_path}")
+    ms = {}
+    try:
+        result = await run_ingestor(audit_state)
+        ms = result.get("machine_state", {})
+        dims_count = len(ms.get("dimensions", [])) if ms else 0
+        logger.info(f"Check ingestor: extraction complete, {dims_count} dimensions")
+
+        if dims_count == 0:
+            logger.warning("Check ingestor: 0 dimensions extracted - may indicate extraction issue")
+            # Log what we got back
+            logger.info(f"Check ingestor: machine_state keys = {list(ms.keys()) if ms else 'None'}")
+
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        error_type = type(e).__name__
+        logger.error(f"Check ingestor failed with {error_type}: {error_msg}")
+        logger.error(traceback.format_exc())
+        await manager.send_session_event(
+            uuid.UUID(session_id), "ingestor", "error",
+            {"message": f"Check extraction failed: {error_type}: {error_msg[:100]}"},
+        )
+        ms = {}
 
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
@@ -195,7 +263,7 @@ async def run_comparison(
     check_file: str,
     master_drawing_id: str,
     check_drawing_id: str,
-    master_machine_state: dict | None = None,
+    master_machine_state: Optional[Dict] = None,
 ) -> ComparisonState:
     """Run the full comparison pipeline."""
     initial_state: ComparisonState = {

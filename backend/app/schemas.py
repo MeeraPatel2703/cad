@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 
 
@@ -9,7 +10,7 @@ class DrawingOut(BaseModel):
     id: uuid.UUID
     filename: str
     upload_date: datetime
-    integrity_score: float | None = None
+    integrity_score: Optional[float] = None
     status: str
 
     model_config = {"from_attributes": True}
@@ -17,10 +18,10 @@ class DrawingOut(BaseModel):
 
 class DrawingDetail(DrawingOut):
     file_path: str
-    metadata_json: dict | None = None
-    machine_state: dict | None = None
-    rfi_json: dict | None = None
-    inspection_sheet: dict | None = None
+    metadata_json: Optional[Dict] = None
+    machine_state: Optional[Dict] = None
+    rfi_json: Optional[Dict] = None
+    inspection_sheet: Optional[Dict] = None
 
 
 class AuditResultOut(BaseModel):
@@ -29,8 +30,8 @@ class AuditResultOut(BaseModel):
     agent_name: str
     result_type: str
     severity: str
-    details: dict | None = None
-    coordinates: dict | None = None
+    details: Optional[Dict] = None
+    coordinates: Optional[Dict] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -39,8 +40,8 @@ class AuditResultOut(BaseModel):
 class AuditStatusOut(BaseModel):
     drawing_id: uuid.UUID
     status: str
-    integrity_score: float | None = None
-    findings: list[AuditResultOut] = Field(default_factory=list)
+    integrity_score: Optional[float] = None
+    findings: List[AuditResultOut] = Field(default_factory=list)
 
 
 class UploadResponse(BaseModel):
@@ -52,7 +53,7 @@ class UploadResponse(BaseModel):
 class WSMessage(BaseModel):
     agent: str
     type: str  # "thought" | "finding" | "complete" | "error"
-    data: dict = Field(default_factory=dict)
+    data: Dict = Field(default_factory=dict)
 
 
 # ── Inspection Session schemas ──
@@ -61,53 +62,53 @@ class WSMessage(BaseModel):
 class InspectionSessionOut(BaseModel):
     id: uuid.UUID
     master_drawing_id: uuid.UUID
-    check_drawing_id: uuid.UUID | None = None
+    check_drawing_id: Optional[uuid.UUID] = None
     status: str
     created_at: datetime
     updated_at: datetime
-    summary: dict | None = None
+    summary: Optional[Dict] = None
 
     model_config = {"from_attributes": True}
 
 
 class InspectionSessionDetail(InspectionSessionOut):
     master_drawing: DrawingOut
-    check_drawing: DrawingOut | None = None
-    comparison_results: dict | None = None
+    check_drawing: Optional[DrawingOut] = None
+    comparison_results: Optional[Dict] = None
 
 
 class ComparisonItemOut(BaseModel):
     id: uuid.UUID
     balloon_number: int
     feature_description: str
-    zone: str | None = None
-    master_nominal: float | None = None
-    master_upper_tol: float | None = None
-    master_lower_tol: float | None = None
+    zone: Optional[str] = None
+    master_nominal: Optional[float] = None
+    master_upper_tol: Optional[float] = None
+    master_lower_tol: Optional[float] = None
     master_unit: str = "mm"
-    master_tolerance_class: str | None = None
-    check_actual: float | None = None
-    deviation: float | None = None
+    master_tolerance_class: Optional[str] = None
+    check_actual: Optional[float] = None
+    deviation: Optional[float] = None
     status: str
-    master_coordinates: dict | None = None
-    check_coordinates: dict | None = None
-    notes: str | None = None
+    master_coordinates: Optional[Dict] = None
+    check_coordinates: Optional[Dict] = None
+    notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 
 class BalloonData(BaseModel):
     balloon_number: int
-    value: float | None = None
+    value: Optional[float] = None
     unit: str = "mm"
-    coordinates: dict
-    tolerance_class: str | None = None
-    nominal: float | None = None
-    upper_tol: float | None = None
-    lower_tol: float | None = None
+    coordinates: Dict
+    tolerance_class: Optional[str] = None
+    nominal: Optional[float] = None
+    upper_tol: Optional[float] = None
+    lower_tol: Optional[float] = None
     status: str = "pending"
 
 
 class DrawingBalloons(BaseModel):
     drawing_id: uuid.UUID
-    balloons: list[BalloonData] = Field(default_factory=list)
+    balloons: List[BalloonData] = Field(default_factory=list)

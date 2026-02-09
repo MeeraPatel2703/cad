@@ -5,6 +5,7 @@ const STATUS_STYLES = {
   pass: 'text-success bg-success/5',
   fail: 'text-critical bg-critical/8',
   warning: 'text-warning bg-warning/6',
+  deviation: 'text-sky-400 bg-sky-400/5',  // Blue for intentional customizations
   not_found: 'text-text-muted bg-bg-card',
   pending: 'text-text-muted bg-bg-card',
 }
@@ -13,11 +14,12 @@ const STATUS_LABELS = {
   pass: 'PASS',
   fail: 'FAIL',
   warning: 'WARN',
+  deviation: 'DEV',  // Intentional deviation
   not_found: 'N/F',
   pending: '---',
 }
 
-const FILTERS = ['all', 'pass', 'fail', 'warning', 'not_found']
+const FILTERS = ['all', 'pass', 'fail', 'warning', 'deviation', 'not_found']
 
 function formatNum(val) {
   if (val === null || val === undefined) return '--'
@@ -183,7 +185,8 @@ export default function InspectionTable({
                   <td className="px-3 py-1.5 text-right text-text-primary tabular-nums">{formatNum(item.check_actual)}</td>
                   <td className={`px-3 py-1.5 text-right tabular-nums ${
                     item.status === 'fail' ? 'text-critical font-bold' :
-                    item.status === 'warning' ? 'text-warning' : 'text-text-secondary'
+                    item.status === 'warning' ? 'text-warning' :
+                    item.status === 'deviation' ? 'text-sky-400' : 'text-text-secondary'
                   }`}>
                     {formatNum(item.deviation)}
                   </td>
@@ -192,6 +195,7 @@ export default function InspectionTable({
                       item.status === 'pass' ? 'bg-success/15 text-success' :
                       item.status === 'fail' ? 'bg-critical/15 text-critical' :
                       item.status === 'warning' ? 'bg-warning/15 text-warning' :
+                      item.status === 'deviation' ? 'bg-sky-400/15 text-sky-400' :
                       'bg-bg-hover text-text-muted'
                     }`}>
                       {STATUS_LABELS[item.status] || item.status}
@@ -218,6 +222,9 @@ export default function InspectionTable({
           </span>
           <span className="text-warning">
             Warn: {summary.warning}
+          </span>
+          <span className="text-sky-400">
+            Dev: {summary.deviation || 0}
           </span>
           <span className="text-text-muted">
             N/F: {summary.not_found}
