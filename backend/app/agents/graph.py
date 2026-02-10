@@ -1,9 +1,12 @@
 """LangGraph StateGraph wiring – full audit pipeline."""
 from __future__ import annotations
 
+import logging
 import uuid
 
 from langgraph.graph import StateGraph, END
+
+logger = logging.getLogger(__name__)
 
 from app.agents.state import AuditState
 from app.agents.ingestor import run_ingestor
@@ -16,11 +19,13 @@ from app.services.ws_manager import manager
 
 async def ingestor_node(state: AuditState) -> AuditState:
     drawing_id = state.get("drawing_id", "")
+    logger.info("=== PIPELINE: Starting INGESTOR for %s ===", drawing_id)
     await manager.send_event(
         uuid.UUID(drawing_id), "ingestor", "thought",
         {"message": "Analyzing drawing with Gemini Vision..."},
     )
     result = await run_ingestor(state)
+    logger.info("=== PIPELINE: INGESTOR complete for %s ===", drawing_id)
     ms = result.get("machine_state", {})
     await manager.send_event(
         uuid.UUID(drawing_id), "ingestor", "thought",
@@ -35,11 +40,13 @@ async def ingestor_node(state: AuditState) -> AuditState:
 
 async def sherlock_node(state: AuditState) -> AuditState:
     drawing_id = state.get("drawing_id", "")
+    logger.info("=== PIPELINE: Starting SHERLOCK for %s ===", drawing_id)
     await manager.send_event(
         uuid.UUID(drawing_id), "sherlock", "thought",
         {"message": "Running cross-verification checks..."},
     )
     result = await run_sherlock(state)
+    logger.info("=== PIPELINE: SHERLOCK complete for %s ===", drawing_id)
     new_findings = len(result.get("findings", [])) - len(state.get("findings", []))
     await manager.send_event(
         uuid.UUID(drawing_id), "sherlock", "thought",
@@ -55,11 +62,13 @@ async def sherlock_node(state: AuditState) -> AuditState:
 
 async def physicist_node(state: AuditState) -> AuditState:
     drawing_id = state.get("drawing_id", "")
+    logger.info("=== PIPELINE: Starting PHYSICIST for %s ===", drawing_id)
     await manager.send_event(
         uuid.UUID(drawing_id), "physicist", "thought",
         {"message": "Running physics and tolerance analysis..."},
     )
     result = await run_physicist(state)
+    logger.info("=== PIPELINE: PHYSICIST complete for %s ===", drawing_id)
     new_findings = len(result.get("findings", [])) - len(state.get("findings", []))
     await manager.send_event(
         uuid.UUID(drawing_id), "physicist", "thought",
@@ -87,11 +96,13 @@ async def reflexion_node(state: AuditState) -> AuditState:
 
 async def reporter_node(state: AuditState) -> AuditState:
     drawing_id = state.get("drawing_id", "")
+    logger.info("=== PIPELINE: Starting REPORTER for %s ===", drawing_id)
     await manager.send_event(
         uuid.UUID(drawing_id), "reporter", "thought",
         {"message": "Generating RFI and inspection reports..."},
     )
     result = await run_reporter(state)
+    logger.info("=== PIPELINE: REPORTER complete for %s ===", drawing_id)
     await manager.send_event(
         uuid.UUID(drawing_id), "reporter", "complete",
         {

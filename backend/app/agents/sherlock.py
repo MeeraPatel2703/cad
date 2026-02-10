@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import google.generativeai as genai
 
 from app.config import settings
 from app.agents.state import AuditState, AuditFinding, FindingType, Severity
+
+logger = logging.getLogger(__name__)
 
 SHERLOCK_PROMPT = """You are Sherlock, an expert mechanical engineering auditor specializing in GD&T,
 ASME Y14.5, and ISO drawing standards. You have been given structured data extracted from a mechanical drawing.
@@ -97,6 +100,7 @@ async def run_sherlock(state: AuditState) -> AuditState:
     model = genai.GenerativeModel(settings.REASONING_MODEL)
     prompt = SHERLOCK_PROMPT + json.dumps(machine_state, indent=2)
 
+    logger.info("Sherlock: sending prompt to Gemini (%d chars)", len(prompt))
     response = await model.generate_content_async(
         prompt,
         generation_config=genai.GenerationConfig(
@@ -105,10 +109,16 @@ async def run_sherlock(state: AuditState) -> AuditState:
         ),
     )
 
+    resp_text = response.text or ""
+    logger.info("Sherlock: Gemini response length: %d chars", len(resp_text))
+    logger.info("Sherlock: response preview: %.500s", resp_text[:500])
+
     try:
-        raw_findings = json.loads(response.text)
-    except json.JSONDecodeError:
-        text = response.text
+        raw_findings = json.loads(resp_text)
+        logger.info("Sherlock: parsed JSON type=%s", type(raw_findings).__name__)
+    except json.JSONDecodeError as e:
+        logger.warning("Sherlock: JSON parse failed: %s", e)
+        text = resp_text
         start = text.find("[")
         end = text.rfind("]") + 1
         if start >= 0 and end > start:
@@ -118,6 +128,11 @@ async def run_sherlock(state: AuditState) -> AuditState:
 
     if isinstance(raw_findings, dict):
         raw_findings = raw_findings.get("findings", [raw_findings])
+
+    # Flatten nested lists and filter out non-dict items
+    if raw_findings and isinstance(raw_findings, list) and isinstance(raw_findings[0], list):
+        raw_findings = [item for sublist in raw_findings for item in sublist]
+    raw_findings = [f for f in raw_findings if isinstance(f, dict)]
 
     findings = state.get("findings", [])
     for f in raw_findings:

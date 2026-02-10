@@ -25,6 +25,7 @@ async def _run_audit_pipeline(drawing_id: str, file_path: str, db_url: str):
     from app.database import async_session
     from app.models import Drawing, AuditResult
 
+    logger.info("=== AUDIT PIPELINE STARTED for %s (file: %s) ===", drawing_id, file_path)
     try:
         # Notify start
         uid = uuid.UUID(drawing_id)
@@ -38,7 +39,9 @@ async def _run_audit_pipeline(drawing_id: str, file_path: str, db_url: str):
             await session.commit()
 
         # Run the graph
+        logger.info("Launching audit graph for %s", drawing_id)
         final_state = await run_audit(drawing_id, file_path)
+        logger.info("Audit graph completed for %s, status=%s", drawing_id, final_state.get("status"))
 
         # Persist results
         async with async_session() as session:

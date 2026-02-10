@@ -46,8 +46,7 @@ export async function exportInspection(id) {
 
 export function createAuditSocket(drawingId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  return new WebSocket(`${protocol}//${host}/ws/audit/${drawingId}`)
+  return new WebSocket(`${protocol}//${window.location.host}/ws/audit/${drawingId}`)
 }
 
 // ── Inspection Session APIs ──

@@ -1,9 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Archive, Upload, Activity, ClipboardCheck } from 'lucide-react'
+import { Archive, Upload, Activity, ClipboardCheck, Shield } from 'lucide-react'
 import { useState } from 'react'
 import InspectionUploadModal from '../upload/InspectionUploadModal'
+import UploadModal from '../upload/UploadModal'
 
 const navItems = [
+  { path: '/audit', icon: Shield, label: 'Audit' },
   { path: '/inspect', icon: ClipboardCheck, label: 'Inspect' },
   { path: '/vault', icon: Archive, label: 'Vault' },
 ]
@@ -12,6 +14,8 @@ export default function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const [showUpload, setShowUpload] = useState(false)
+  const [showAuditUpload, setShowAuditUpload] = useState(false)
+  const isAuditOrVault = location.pathname.startsWith('/audit') || location.pathname.startsWith('/vault')
 
   return (
     <>
@@ -40,8 +44,8 @@ export default function Sidebar() {
         })}
 
         <button
-          onClick={() => setShowUpload(true)}
-          title="New Inspection"
+          onClick={() => isAuditOrVault ? setShowAuditUpload(true) : setShowUpload(true)}
+          title={isAuditOrVault ? 'Upload & Audit' : 'New Inspection'}
           className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-accent transition-all"
         >
           <Upload size={20} />
@@ -59,6 +63,7 @@ export default function Sidebar() {
       </div>
 
       {showUpload && <InspectionUploadModal onClose={() => setShowUpload(false)} />}
+      {showAuditUpload && <UploadModal onClose={() => setShowAuditUpload(false)} />}
     </>
   )
 }

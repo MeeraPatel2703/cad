@@ -396,6 +396,7 @@ async def run_physicist(state: AuditState) -> AuditState:
     )
 
     # Retry logic with exponential backoff for rate limiting
+    logger.info("Physicist: sending prompt to Gemini (%d chars)", len(prompt))
     response = None
     for attempt in range(MAX_RETRIES):
         try:
@@ -419,10 +420,16 @@ async def run_physicist(state: AuditState) -> AuditState:
     if response is None:
         raise RuntimeError("Failed to get response from Gemini API for physicist")
 
+    resp_text = response.text or ""
+    logger.info("Physicist: Gemini response length: %d chars", len(resp_text))
+    logger.info("Physicist: response preview: %.500s", resp_text[:500])
+
     try:
-        raw_findings = json.loads(response.text)
-    except json.JSONDecodeError:
-        text = response.text
+        raw_findings = json.loads(resp_text)
+        logger.info("Physicist: parsed JSON type=%s", type(raw_findings).__name__)
+    except json.JSONDecodeError as e:
+        logger.warning("Physicist: JSON parse failed: %s", e)
+        text = resp_text
         start = text.find("[")
         end = text.rfind("]") + 1
         if start >= 0 and end > start:
@@ -432,6 +439,11 @@ async def run_physicist(state: AuditState) -> AuditState:
 
     if isinstance(raw_findings, dict):
         raw_findings = raw_findings.get("findings", [raw_findings])
+
+    # Flatten nested lists and filter out non-dict items
+    if raw_findings and isinstance(raw_findings, list) and isinstance(raw_findings[0], list):
+        raw_findings = [item for sublist in raw_findings for item in sublist]
+    raw_findings = [f for f in raw_findings if isinstance(f, dict)]
 
     for f in raw_findings:
         # Handle finding_type gracefully

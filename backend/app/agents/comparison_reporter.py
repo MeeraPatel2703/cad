@@ -90,6 +90,8 @@ async def run_comparison_reporter(state: ComparisonState) -> ComparisonState:
                 report_data = {"rfi": {"items": []}}
 
         rfi = report_data.get("rfi", report_data)
+        if not isinstance(rfi, dict):
+            rfi = {"items": rfi} if isinstance(rfi, list) else {"items": []}
 
     log_entry = {
         "agent": "comparison_reporter",
