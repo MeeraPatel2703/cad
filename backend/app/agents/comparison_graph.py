@@ -11,6 +11,7 @@ from app.agents.state import ComparisonState, AuditState
 from app.agents.ingestor import run_ingestor
 from app.agents.comparator import run_comparator
 from app.agents.comparison_reporter import run_comparison_reporter
+from app.agents.sherlock import run_sherlock
 from app.services.ws_manager import manager
 
 
@@ -238,6 +239,89 @@ async def comparator_node(state: ComparisonState) -> ComparisonState:
     return result
 
 
+async def sherlock_node(state: ComparisonState) -> ComparisonState:
+    """Run Sherlock cross-verification on both master and check drawings."""
+    session_id = state.get("session_id", "")
+
+    await manager.send_session_event(
+        uuid.UUID(session_id), "sherlock", "thought",
+        {"message": "Running Sherlock cross-verification on both drawings..."},
+    )
+
+    master_ms = state.get("master_machine_state") or {}
+    check_ms = state.get("check_machine_state") or {}
+
+    # Build temporary AuditStates for Sherlock
+    master_audit: AuditState = {
+        "drawing_id": state.get("master_drawing_id", ""),
+        "file_path": state.get("master_file_path", ""),
+        "machine_state": master_ms,
+        "findings": [],
+        "agent_log": [],
+        "reflexion_count": 0,
+        "status": "started",
+        "crop_region": None,
+        "rfi": None,
+        "inspection_sheet": None,
+        "integrity_score": None,
+    }
+    check_audit: AuditState = {
+        "drawing_id": state.get("check_drawing_id", ""),
+        "file_path": state.get("check_file_path", ""),
+        "machine_state": check_ms,
+        "findings": [],
+        "agent_log": [],
+        "reflexion_count": 0,
+        "status": "started",
+        "crop_region": None,
+        "rfi": None,
+        "inspection_sheet": None,
+        "integrity_score": None,
+    }
+
+    # Run Sherlock on both drawings in parallel
+    master_result, check_result = await asyncio.gather(
+        run_sherlock(master_audit),
+        run_sherlock(check_audit),
+    )
+
+    # Tag findings with their drawing role for display
+    master_findings = master_result.get("findings", [])
+    for f in master_findings:
+        f["drawing_role"] = "master"
+
+    check_findings = check_result.get("findings", [])
+    for f in check_findings:
+        f["drawing_role"] = "check"
+
+    all_findings = list(state.get("findings", [])) + master_findings + check_findings
+
+    master_count = len(master_findings)
+    check_count = len(check_findings)
+
+    await manager.send_session_event(
+        uuid.UUID(session_id), "sherlock", "thought",
+        {
+            "message": f"Sherlock complete: {master_count} findings on master, "
+                       f"{check_count} findings on check drawing",
+        },
+    )
+
+    agent_log = list(state.get("agent_log", []))
+    agent_log.append({
+        "agent": "sherlock",
+        "action": "cross_verification",
+        "master_findings": master_count,
+        "check_findings": check_count,
+    })
+
+    return {
+        **state,
+        "findings": all_findings,
+        "agent_log": agent_log,
+    }
+
+
 async def reporter_node(state: ComparisonState) -> ComparisonState:
     session_id = state.get("session_id", "")
 
@@ -269,12 +353,14 @@ def build_comparison_graph() -> StateGraph:
     graph.add_node("master_ingestor", master_ingestor_node)
     graph.add_node("check_ingestor", check_ingestor_node)
     graph.add_node("comparator", comparator_node)
+    graph.add_node("sherlock", sherlock_node)
     graph.add_node("reporter", reporter_node)
 
     graph.set_entry_point("master_ingestor")
     graph.add_edge("master_ingestor", "check_ingestor")
     graph.add_edge("check_ingestor", "comparator")
-    graph.add_edge("comparator", "reporter")
+    graph.add_edge("comparator", "sherlock")
+    graph.add_edge("sherlock", "reporter")
     graph.add_edge("reporter", END)
 
     return graph.compile()
