@@ -1,7 +1,9 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Archive, Upload, Activity, ClipboardCheck, Shield } from 'lucide-react'
 import { useState } from 'react'
+import { useUserRole } from '../../context/UserRoleContext'
 import InspectionUploadModal from '../upload/InspectionUploadModal'
+import EngineerUploadModal from '../upload/EngineerUploadModal'
 import UploadModal from '../upload/UploadModal'
 
 const navItems = [
@@ -13,9 +15,25 @@ const navItems = [
 export default function Sidebar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { role } = useUserRole()
   const [showUpload, setShowUpload] = useState(false)
   const [showAuditUpload, setShowAuditUpload] = useState(false)
+  const [showEngineerUpload, setShowEngineerUpload] = useState(false)
   const isAuditOrVault = location.pathname.startsWith('/audit') || location.pathname.startsWith('/vault')
+
+  const handleUploadClick = () => {
+    if (role === 'engineer') {
+      setShowEngineerUpload(true)
+    } else if (isAuditOrVault) {
+      setShowAuditUpload(true)
+    } else {
+      setShowUpload(true)
+    }
+  }
+
+  const uploadLabel = role === 'admin'
+    ? (isAuditOrVault ? 'Upload & Audit' : 'Upload Master')
+    : 'Upload Check'
 
   return (
     <>
@@ -44,8 +62,8 @@ export default function Sidebar() {
         })}
 
         <button
-          onClick={() => isAuditOrVault ? setShowAuditUpload(true) : setShowUpload(true)}
-          title={isAuditOrVault ? 'Upload & Audit' : 'New Inspection'}
+          onClick={handleUploadClick}
+          title={uploadLabel}
           className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-accent transition-all"
         >
           <Upload size={20} />
@@ -64,6 +82,7 @@ export default function Sidebar() {
 
       {showUpload && <InspectionUploadModal onClose={() => setShowUpload(false)} />}
       {showAuditUpload && <UploadModal onClose={() => setShowAuditUpload(false)} />}
+      {showEngineerUpload && <EngineerUploadModal onClose={() => setShowEngineerUpload(false)} />}
     </>
   )
 }

@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, Clock, ArrowRight, Trash2 } from 'lucide-react'
 import { getInspectionSessions, deleteInspectionSession } from '../services/api'
+import { useUserRole } from '../context/UserRoleContext'
 import IntegrityBadge from '../components/vault/IntegrityBadge'
 
 export default function InspectionPage() {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
+  const { role } = useUserRole()
   const navigate = useNavigate()
 
   const fetchSessions = async () => {
@@ -83,7 +85,11 @@ export default function InspectionPage() {
       {!loading && sessions.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <p className="text-sm text-text-muted mb-2">No inspection sessions yet</p>
-          <p className="text-xs text-text-muted">Use the upload button in the sidebar to start a new inspection</p>
+          <p className="text-xs text-text-muted">
+            {role === 'admin'
+              ? 'Upload a master drawing to begin'
+              : 'No masters available — ask an admin to upload a master drawing'}
+          </p>
         </div>
       )}
 

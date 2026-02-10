@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { RefreshCw, Clock, ArrowRight, Trash2, Upload, Shield } from 'lucide-react'
 import { getDrawings, deleteDrawing } from '../services/api'
+import { useUserRole } from '../context/UserRoleContext'
 import IntegrityBadge from '../components/vault/IntegrityBadge'
 import UploadModal from '../components/upload/UploadModal'
 
@@ -9,7 +10,9 @@ export default function AuditPage() {
   const [drawings, setDrawings] = useState([])
   const [loading, setLoading] = useState(true)
   const [showUpload, setShowUpload] = useState(false)
+  const { role } = useUserRole()
   const navigate = useNavigate()
+  const isAdmin = role === 'admin'
 
   const fetchDrawings = async () => {
     try {
@@ -73,13 +76,15 @@ export default function AuditPage() {
           Audit Drawings
         </h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowUpload(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
-          >
-            <Upload size={14} />
-            Upload &amp; Audit
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowUpload(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+            >
+              <Upload size={14} />
+              Upload &amp; Audit
+            </button>
+          )}
           <button
             onClick={fetchDrawings}
             className="p-2 text-text-muted hover:text-accent transition-colors rounded-lg hover:bg-bg-hover"
@@ -97,14 +102,18 @@ export default function AuditPage() {
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Shield size={40} className="text-text-muted mb-4 opacity-40" />
           <p className="text-sm text-text-muted mb-2">No audit drawings yet</p>
-          <p className="text-xs text-text-muted mb-4">Upload a drawing to run the full AI audit pipeline</p>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
-          >
-            <Upload size={14} />
-            Upload &amp; Audit
-          </button>
+          <p className="text-xs text-text-muted mb-4">
+            {isAdmin ? 'Upload a drawing to run the full AI audit pipeline' : 'Audit drawings uploaded by admins will appear here'}
+          </p>
+          {isAdmin && (
+            <button
+              onClick={() => setShowUpload(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+            >
+              <Upload size={14} />
+              Upload &amp; Audit
+            </button>
+          )}
         </div>
       )}
 
