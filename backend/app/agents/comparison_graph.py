@@ -109,16 +109,6 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
 
     logger.info(f"Check ingestor: file validated, size={os.path.getsize(check_file_path)} bytes")
 
-    # Delay to avoid rate limits after master ingestion
-    # Gemini free tier has strict rate limits (2 RPM for some models)
-    # Wait 45 seconds to ensure rate limit resets
-    logger.info("Check ingestor: waiting 45s before extraction to avoid rate limits...")
-    await manager.send_session_event(
-        uuid.UUID(session_id), "ingestor", "thought",
-        {"message": "Waiting for API rate limit cooldown (45s)..."},
-    )
-    await asyncio.sleep(45)
-
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
         {"message": "Analyzing check drawing with Gemini Vision..."},

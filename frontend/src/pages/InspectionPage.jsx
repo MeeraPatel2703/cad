@@ -89,10 +89,10 @@ export default function InspectionPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {sessions.map((s) => (
-          <button
+          <div
             key={s.id}
             onClick={() => navigate(`/inspect/${s.id}`)}
-            className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-bg-card hover:border-border-light hover:bg-bg-hover transition-all text-left group"
+            className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-bg-card hover:border-border-light hover:bg-bg-hover transition-all text-left group cursor-pointer"
           >
             <div className="flex items-start justify-between">
               {statusBadge(s.status)}
@@ -126,7 +126,7 @@ export default function InspectionPage() {
               </div>
               {s.summary && <IntegrityBadge score={s.summary.score} />}
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>

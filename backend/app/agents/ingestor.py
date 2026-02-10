@@ -437,7 +437,9 @@ async def run_ingestor(state: AuditState) -> AuditState:
         return {}
 
     try:
+        logger.info(f"Raw Gemini response (first 2000 chars): {response.text[:2000] if response.text else 'None'}")
         extracted = json.loads(response.text)
+        logger.info(f"Parsed type: {type(extracted).__name__}")
         logger.info(f"JSON parsed successfully: {len(extracted.get('dimensions', []))} dimensions")
     except json.JSONDecodeError as e:
         logger.warning(f"JSON parse failed: {e}, attempting fix_json")

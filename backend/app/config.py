@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     DATABASE_URL: str = "postgresql+asyncpg://amia:amia@localhost:5432/amia"
     CHROMA_PERSIST_DIR: str = "./chroma_data"
-    VISION_MODEL: str = "gemini-1.5-pro"
+    VISION_MODEL: str = "gemini-2.0-flash"
     REASONING_MODEL: str = "gemini-2.5-pro"
     UPLOAD_DIR: str = "./uploads"
 
