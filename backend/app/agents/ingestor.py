@@ -224,6 +224,105 @@ def _scale_coordinates(coords: Dict, img_width: int, img_height: int) -> Dict:
     return {"x": x, "y": y}
 
 
+def _validate_and_adjust_coordinates(
+    dimensions: List[Dict],
+    file_path: str,
+    img_size: Tuple[int, int]
+) -> List[Dict]:
+    """
+    Validate that balloon coordinates land on actual drawing content.
+    If a coordinate is on empty/white space, search nearby for content.
+    """
+    path = Path(file_path)
+    img_width, img_height = img_size
+
+    # Load image for pixel analysis
+    try:
+        if path.suffix.lower() == ".pdf":
+            import fitz
+            png_path = path.with_suffix('.png')
+            if not png_path.exists():
+                doc = fitz.open(str(path))
+                page = doc[0]
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                pix.save(str(png_path))
+                doc.close()
+            img = Image.open(png_path).convert('RGB')
+        else:
+            img = Image.open(path).convert('RGB')
+    except Exception as e:
+        logger.warning(f"Could not load image for coordinate validation: {e}")
+        return dimensions
+
+    actual_width, actual_height = img.size
+
+    def is_on_content(x: int, y: int, radius: int = 10) -> bool:
+        """Check if pixel area has drawing content (not white/empty)."""
+        non_white = 0
+        samples = 0
+        for dx in range(-radius, radius + 1, 3):
+            for dy in range(-radius, radius + 1, 3):
+                sx = max(0, min(x + dx, actual_width - 1))
+                sy = max(0, min(y + dy, actual_height - 1))
+                r, g, b = img.getpixel((sx, sy))
+                samples += 1
+                if r < 240 or g < 240 or b < 240:
+                    non_white += 1
+        return (non_white / samples) >= 0.15 if samples > 0 else False
+
+    def find_nearest_content(x: int, y: int, max_search: int = 100) -> Tuple[int, int]:
+        """Search in expanding circles to find nearest content."""
+        # Search in a spiral pattern
+        for radius in range(10, max_search, 10):
+            # Check 8 directions at this radius
+            for angle_step in range(8):
+                import math
+                angle = (angle_step / 8) * 2 * math.pi
+                nx = int(x + radius * math.cos(angle))
+                ny = int(y + radius * math.sin(angle))
+                nx = max(0, min(nx, actual_width - 1))
+                ny = max(0, min(ny, actual_height - 1))
+                if is_on_content(nx, ny, radius=5):
+                    return nx, ny
+        return x, y  # No content found, return original
+
+    adjusted_count = 0
+    for dim in dimensions:
+        coords = dim.get("coordinates", {})
+        if not coords:
+            continue
+
+        x = coords.get("x", 0)
+        y = coords.get("y", 0)
+
+        # Scale coordinates to actual image size if needed
+        if actual_width != img_width or actual_height != img_height:
+            x = int(x * actual_width / img_width) if img_width > 0 else x
+            y = int(y * actual_height / img_height) if img_height > 0 else y
+
+        x = max(0, min(int(x), actual_width - 1))
+        y = max(0, min(int(y), actual_height - 1))
+
+        if not is_on_content(x, y):
+            # Find nearest content
+            new_x, new_y = find_nearest_content(x, y)
+            if (new_x, new_y) != (x, y):
+                # Scale back to original coordinate system
+                if actual_width != img_width:
+                    new_x = int(new_x * img_width / actual_width)
+                if actual_height != img_height:
+                    new_y = int(new_y * img_height / actual_height)
+                dim["coordinates"] = {"x": new_x, "y": new_y}
+                dim["coordinate_adjusted"] = True
+                adjusted_count += 1
+
+    if adjusted_count > 0:
+        logger.info(f"Adjusted {adjusted_count} balloon coordinates to valid content areas")
+
+    return dimensions
+
+
 def _bind_dimensions_to_entities(
     dimensions: List[Dict],
     entity_registry: Dict[str, Dict],
@@ -457,6 +556,9 @@ async def run_ingestor(state: AuditState) -> AuditState:
     # Phase 3: Bind dimensions to entities and add grid refs
     dimensions = extracted.get("dimensions", [])
     dimensions = _bind_dimensions_to_entities(dimensions, entity_registry, img_size)
+
+    # Phase 3b: Validate and adjust coordinates to ensure they land on drawing content
+    dimensions = _validate_and_adjust_coordinates(dimensions, file_path, img_size)
     extracted["dimensions"] = dimensions
 
     # Phase 4: Bind GD&T callouts similarly (with coordinate scaling)

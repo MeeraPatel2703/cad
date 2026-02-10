@@ -162,6 +162,11 @@ async def _run_comparison_pipeline(session_id: str, master_drawing_id: str, chec
                 "agent_log": final_state.get("agent_log"),
             }
 
+            # Clear any existing comparison items first to prevent duplicates
+            await db.execute(
+                ComparisonItem.__table__.delete().where(ComparisonItem.session_id == sid)
+            )
+
             # Store comparison items
             for item in final_state.get("comparison_items", []):
                 ci = ComparisonItem(
