@@ -87,6 +87,10 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
     import os
     logger = logging.getLogger(__name__)
 
+    from sqlalchemy import select
+    from app.database import async_session
+    from app.models import Drawing
+
     session_id = state.get("session_id", "")
     check_file_path = state.get("check_file_path", "")
 
@@ -152,6 +156,38 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
             {"message": f"Check extraction failed: {error_type}: {error_msg[:100]}"},
         )
         ms = {}
+
+    # Persist initial "pending" balloons for check drawing so they show during comparison
+    check_drawing_id = state.get("check_drawing_id", "")
+    if ms and ms.get("dimensions") and check_drawing_id:
+        try:
+            async with async_session() as db:
+                row = await db.execute(
+                    select(Drawing).where(Drawing.id == uuid.UUID(check_drawing_id))
+                )
+                drawing = row.scalar_one_or_none()
+                if drawing:
+                    balloons = []
+                    for i, dim in enumerate(ms.get("dimensions", [])):
+                        coords = dim.get("coordinates", {})
+                        if coords:
+                            balloons.append({
+                                "balloon_number": i + 1,
+                                "value": dim.get("value", 0),
+                                "unit": dim.get("unit", "mm"),
+                                "coordinates": coords,
+                                "tolerance_class": dim.get("tolerance_class"),
+                                "nominal": dim.get("nominal") or dim.get("value"),
+                                "upper_tol": dim.get("upper_tol"),
+                                "lower_tol": dim.get("lower_tol"),
+                                "status": "pending",
+                            })
+                    drawing.balloon_data = balloons
+                    drawing.machine_state = ms
+                    await db.commit()
+                    logger.info(f"Check ingestor: saved {len(balloons)} initial balloons")
+        except Exception as e:
+            logger.warning(f"Check ingestor: failed to save initial balloons: {e}")
 
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
