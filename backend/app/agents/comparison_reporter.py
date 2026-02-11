@@ -76,6 +76,7 @@ async def run_comparison_reporter(state: ComparisonState) -> ComparisonState:
                 response_mime_type="application/json",
                 temperature=0.3,
             ),
+            request_options={"timeout": 600},
         )
 
         try:

@@ -406,6 +406,7 @@ async def run_physicist(state: AuditState) -> AuditState:
                     response_mime_type="application/json",
                     temperature=0.2,
                 ),
+                request_options={"timeout": 600},
             )
             break  # Success, exit retry loop
         except ResourceExhausted as e:

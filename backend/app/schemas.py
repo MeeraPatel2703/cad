@@ -22,6 +22,7 @@ class DrawingDetail(DrawingOut):
     machine_state: Optional[Dict] = None
     rfi_json: Optional[Dict] = None
     inspection_sheet: Optional[Dict] = None
+    balloon_data: Optional[list] = None
 
 
 class AuditResultOut(BaseModel):

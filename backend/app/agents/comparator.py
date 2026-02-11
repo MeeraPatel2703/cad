@@ -332,6 +332,7 @@ async def _llm_match_dimensions(
                 response_mime_type="application/json",
                 temperature=0.1,
             ),
+            request_options={"timeout": 600},
         )
         # Robust JSON parsing
         text = response.text

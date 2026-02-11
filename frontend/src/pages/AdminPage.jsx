@@ -1,15 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { RefreshCw, Clock, ArrowRight, Trash2 } from 'lucide-react'
-import { getInspectionSessions, deleteInspectionSession } from '../services/api'
-import { useUserRole } from '../context/UserRoleContext'
+import { RefreshCw, Clock, ArrowRight, Trash2, Upload, Loader2, Shield } from 'lucide-react'
+import { createInspectionSession, getInspectionSessions, deleteInspectionSession } from '../services/api'
 import IntegrityBadge from '../components/vault/IntegrityBadge'
 
-export default function InspectionPage() {
+const ACCEPTED = '.pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp'
+
+export default function AdminPage() {
+  const navigate = useNavigate()
+  const inputRef = useRef()
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
-  const { role } = useUserRole()
-  const navigate = useNavigate()
+  const [dragOver, setDragOver] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
+  const [uploadedFile, setUploadedFile] = useState(null)
 
   const fetchSessions = async () => {
     try {
@@ -28,11 +33,33 @@ export default function InspectionPage() {
     return () => clearInterval(interval)
   }, [])
 
-  const handleDelete = async (e, sessionId) => {
-    e.stopPropagation() // Prevent navigation
-    if (!confirm('Delete this inspection session? This cannot be undone.')) {
-      return
+  const handleFile = async (f) => {
+    setUploadedFile(f)
+    setUploadError(null)
+    setUploading(true)
+    try {
+      await createInspectionSession(f)
+      setUploadedFile(null)
+      fetchSessions()
+    } catch (err) {
+      setUploadError('Upload failed: ' + (err.response?.data?.detail || err.message))
+      setUploadedFile(null)
+    } finally {
+      setUploading(false)
     }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    setDragOver(false)
+    if (uploading) return
+    const f = e.dataTransfer.files[0]
+    if (f) handleFile(f)
+  }
+
+  const handleDelete = async (e, sessionId) => {
+    e.stopPropagation()
+    if (!confirm('Delete this session? This cannot be undone.')) return
     try {
       await deleteInspectionSession(sessionId)
       setSessions(sessions.filter(s => s.id !== sessionId))
@@ -65,10 +92,60 @@ export default function InspectionPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div>
+      {/* Upload zone */}
+      <div className="mb-8">
+        <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Upload Master Drawing
+        </h2>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          onClick={() => !uploading && inputRef.current?.click()}
+          className={`flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-10 cursor-pointer transition-all ${
+            uploading
+              ? 'border-accent/40 bg-accent/5 cursor-wait'
+              : dragOver
+                ? 'border-accent bg-accent/5'
+                : 'border-border-light hover:border-accent/40 hover:bg-bg-hover'
+          }`}
+        >
+          {uploading ? (
+            <Loader2 size={32} className="text-accent animate-spin" />
+          ) : (
+            <Upload size={32} className="text-text-muted" />
+          )}
+          {uploadedFile ? (
+            <div className="text-xs text-text-secondary text-center">
+              <p className="truncate max-w-[280px]">{uploadedFile.name}</p>
+              <p className="text-text-muted">{(uploadedFile.size / 1024 / 1024).toFixed(2)} MB</p>
+            </div>
+          ) : (
+            <>
+              <span className="text-xs text-text-secondary">Drop master drawing here or click to browse</span>
+              <span className="text-[11px] text-text-muted">PDF, PNG, JPG, TIFF</span>
+            </>
+          )}
+        </div>
+        {uploadError && <p className="mt-2 text-xs text-critical">{uploadError}</p>}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPTED}
+          className="hidden"
+          disabled={uploading}
+          onChange={(e) => {
+            const f = e.target.files[0]
+            if (f) handleFile(f)
+          }}
+        />
+      </div>
+
+      {/* Session list */}
+      <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
-          Inspection Sessions
+          Sessions
         </h2>
         <button
           onClick={fetchSessions}
@@ -83,13 +160,10 @@ export default function InspectionPage() {
       )}
 
       {!loading && sessions.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-sm text-text-muted mb-2">No inspection sessions yet</p>
-          <p className="text-xs text-text-muted">
-            {role === 'admin'
-              ? 'Upload a master drawing to begin'
-              : 'No masters available — ask an admin to upload a master drawing'}
-          </p>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Shield size={40} className="text-text-muted mb-4 opacity-40" />
+          <p className="text-sm text-text-muted mb-1">No sessions yet</p>
+          <p className="text-xs text-text-muted">Upload a master drawing above to create one</p>
         </div>
       )}
 
@@ -116,7 +190,7 @@ export default function InspectionPage() {
 
             <div className="flex flex-col gap-1">
               <span className="text-xs text-text-primary truncate">
-                Master: {s.master_drawing_id?.slice(0, 8)}...
+                {s.master_filename || `Master ${s.master_drawing_id?.slice(0, 8)}...`}
               </span>
               {s.check_drawing_id && (
                 <span className="text-xs text-text-secondary truncate">

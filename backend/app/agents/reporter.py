@@ -100,6 +100,7 @@ async def run_reporter(state: AuditState) -> AuditState:
             response_mime_type="application/json",
             temperature=0.3,
         ),
+        request_options={"timeout": 600},
     )
 
     resp_text = response.text or ""

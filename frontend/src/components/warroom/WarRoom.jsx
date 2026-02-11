@@ -1,27 +1,10 @@
-import { useState } from 'react'
 import DrawingCanvas from './DrawingCanvas'
-import AuditLog from './AuditLog'
-import ComparisonEngine from './ComparisonEngine'
+import WarRoomSidebar from './WarRoomSidebar'
 import IntegrityBadge from '../vault/IntegrityBadge'
 import { Download, FileText } from 'lucide-react'
 import { exportRFI } from '../../services/api'
 
-export default function WarRoom({ drawingId, drawing, events, findings }) {
-  const [splitPos, setSplitPos] = useState(60) // percentage
-  const [dragging, setDragging] = useState(false)
-
-  const handleMouseDown = () => setDragging(true)
-
-  const handleMouseMove = (e) => {
-    if (!dragging) return
-    const container = e.currentTarget
-    const rect = container.getBoundingClientRect()
-    const pct = ((e.clientX - rect.left) / rect.width) * 100
-    setSplitPos(Math.min(85, Math.max(25, pct)))
-  }
-
-  const handleMouseUp = () => setDragging(false)
-
+export default function WarRoom({ drawingId, drawing, events, findings, balloons, selectedBalloon, onBalloonSelect }) {
   const handleExportRFI = async () => {
     try {
       const data = await exportRFI(drawingId)
@@ -40,7 +23,7 @@ export default function WarRoom({ drawingId, drawing, events, findings }) {
   return (
     <div className="flex flex-col h-full">
       {/* Status bar */}
-      <div className="flex items-center gap-3 border-b border-border bg-bg-panel px-4 py-2">
+      <div className="flex items-center gap-3 border-b border-border bg-bg-panel px-4 py-2 shrink-0">
         <FileText size={14} className="text-accent/60" />
         <span className="text-xs text-text-secondary font-medium">{drawing?.filename || 'Drawing'}</span>
         <div className="flex-1" />
@@ -56,33 +39,30 @@ export default function WarRoom({ drawingId, drawing, events, findings }) {
         )}
       </div>
 
-      {/* Split pane */}
-      <div
-        className="flex flex-1 overflow-hidden"
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={{ cursor: dragging ? 'col-resize' : 'default' }}
-      >
+      {/* Main content: Canvas + Sidebar */}
+      <div className="flex flex-1 overflow-hidden">
         {/* Left: Drawing Canvas */}
-        <div style={{ width: `${splitPos}%` }} className="overflow-hidden">
-          <DrawingCanvas drawingId={drawingId} findings={findings} />
+        <div className="flex-1 overflow-hidden">
+          <DrawingCanvas
+            drawingId={drawingId}
+            findings={findings}
+            balloons={balloons}
+            selectedBalloon={selectedBalloon}
+            onBalloonClick={onBalloonSelect}
+          />
         </div>
 
-        {/* Divider */}
-        <div
-          onMouseDown={handleMouseDown}
-          className="w-1 bg-border hover:bg-accent/30 cursor-col-resize transition-colors flex-shrink-0"
-        />
-
-        {/* Right: Audit Log */}
-        <div style={{ width: `${100 - splitPos}%` }} className="overflow-hidden">
-          <AuditLog events={events} />
+        {/* Right: Sidebar */}
+        <div className="w-[380px] shrink-0 border-l border-border overflow-hidden">
+          <WarRoomSidebar
+            drawing={drawing}
+            events={events}
+            balloons={balloons}
+            selectedBalloon={selectedBalloon}
+            onBalloonClick={onBalloonSelect}
+          />
         </div>
       </div>
-
-      {/* Bottom: Comparison */}
-      <ComparisonEngine findings={findings} />
     </div>
   )
 }

@@ -350,6 +350,7 @@ async def run_ingestor(state: AuditState) -> AuditState:
                     response_mime_type="application/json",
                     temperature=0.1,
                 ),
+                request_options={"timeout": 600},
             )
             break  # Success, exit retry loop
         except ResourceExhausted as e:
