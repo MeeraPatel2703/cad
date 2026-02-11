@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 from app.agents.state import AuditState
 from app.agents.ingestor import run_ingestor
+from app.config import settings
 from app.agents.sherlock import run_sherlock
 from app.agents.physicist import run_physicist
 from app.agents.reporter import run_reporter
@@ -24,7 +25,11 @@ async def ingestor_node(state: AuditState) -> AuditState:
         uuid.UUID(drawing_id), "ingestor", "thought",
         {"message": "Analyzing drawing with Gemini Vision..."},
     )
-    result = await run_ingestor(state)
+    if settings.USE_PADDLE_OCR:
+        from app.agents.ingestor_paddle import run_ingestor_paddle
+        result = await run_ingestor_paddle(state)
+    else:
+        result = await run_ingestor(state)
     logger.info("=== PIPELINE: INGESTOR complete for %s ===", drawing_id)
     ms = result.get("machine_state", {})
     await manager.send_event(

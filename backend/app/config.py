@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     VISION_MODEL: str = "gemini-2.0-flash"
     REASONING_MODEL: str = "gemini-2.5-pro"
     UPLOAD_DIR: str = "./uploads"
+    USE_PADDLE_OCR: bool = True  # Use PaddleOCR + Gemini reasoning instead of pure Gemini Flash
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

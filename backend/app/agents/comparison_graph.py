@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph, END
 
 from app.agents.state import ComparisonState, AuditState
 from app.agents.ingestor import run_ingestor
+from app.config import settings
 from app.agents.comparator import run_comparator
 from app.agents.comparison_reporter import run_comparison_reporter
 from app.agents.sherlock import run_sherlock
@@ -56,7 +57,11 @@ async def master_ingestor_node(state: ComparisonState) -> ComparisonState:
         "integrity_score": None,
     }
 
-    result = await run_ingestor(audit_state)
+    if settings.USE_PADDLE_OCR:
+        from app.agents.ingestor_paddle import run_ingestor_paddle
+        result = await run_ingestor_paddle(audit_state)
+    else:
+        result = await run_ingestor(audit_state)
     ms = result.get("machine_state", {})
 
     await manager.send_session_event(
@@ -136,7 +141,11 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
     logger.info(f"Check ingestor: starting extraction for {check_file_path}")
     ms = {}
     try:
-        result = await run_ingestor(audit_state)
+        if settings.USE_PADDLE_OCR:
+            from app.agents.ingestor_paddle import run_ingestor_paddle
+            result = await run_ingestor_paddle(audit_state)
+        else:
+            result = await run_ingestor(audit_state)
         ms = result.get("machine_state", {})
         dims_count = len(ms.get("dimensions", [])) if ms else 0
         logger.info(f"Check ingestor: extraction complete, {dims_count} dimensions")
