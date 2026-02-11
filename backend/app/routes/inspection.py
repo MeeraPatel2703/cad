@@ -160,6 +160,7 @@ async def _run_comparison_pipeline(session_id: str, master_drawing_id: str, chec
             session.comparison_results = {
                 "rfi": final_state.get("rfi"),
                 "agent_log": final_state.get("agent_log"),
+                "findings": final_state.get("findings"),
             }
 
             # Clear any existing comparison items first to prevent duplicates

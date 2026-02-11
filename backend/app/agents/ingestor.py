@@ -438,15 +438,18 @@ async def run_ingestor(state: AuditState) -> AuditState:
     content_parts.append(prompt)
 
     # Retry logic with exponential backoff for rate limiting
+    logger.info("Ingestor: sending %s to Gemini (%s, %d content parts)", "rescan" if is_rescan else "extraction", settings.VISION_MODEL, len(content_parts))
     response = None
     for attempt in range(MAX_RETRIES):
         try:
+            logger.info("Ingestor: Gemini API call attempt %d/%d...", attempt + 1, MAX_RETRIES)
             response = await model.generate_content_async(
                 content_parts,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
                     temperature=0.1,
                 ),
+                request_options={"timeout": 600},
             )
             break  # Success, exit retry loop
         except ResourceExhausted as e:
@@ -536,7 +539,28 @@ async def run_ingestor(state: AuditState) -> AuditState:
         return {}
 
     try:
+        logger.info(f"Raw Gemini response (first 2000 chars): {response.text[:2000] if response.text else 'None'}")
         extracted = json.loads(response.text)
+        logger.info(f"Parsed type: {type(extracted).__name__}")
+        # Gemini sometimes wraps the object in an array — unwrap it
+        if isinstance(extracted, list):
+            if len(extracted) == 1 and isinstance(extracted[0], dict):
+                extracted = extracted[0]
+                logger.info("Unwrapped single-element array to dict")
+            elif len(extracted) > 1:
+                # Merge multiple dicts into one
+                merged = {}
+                for item in extracted:
+                    if isinstance(item, dict):
+                        for k, v in item.items():
+                            if k in merged and isinstance(merged[k], list) and isinstance(v, list):
+                                merged[k].extend(v)
+                            else:
+                                merged[k] = v
+                extracted = merged
+                logger.info("Merged %d array elements into single dict", len(extracted))
+            else:
+                extracted = {}
         logger.info(f"JSON parsed successfully: {len(extracted.get('dimensions', []))} dimensions")
     except json.JSONDecodeError as e:
         logger.warning(f"JSON parse failed: {e}, attempting fix_json")

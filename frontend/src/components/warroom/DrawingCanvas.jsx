@@ -1,15 +1,14 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import BalloonOverlay from './BalloonOverlay'
+import InspectionBalloonOverlay from '../inspection/InspectionBalloonOverlay'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 
-export default function DrawingCanvas({ drawingId, findings }) {
+export default function DrawingCanvas({ drawingId, findings, balloons = [], selectedBalloon, onBalloonClick }) {
   const [zoom, setZoom] = useState(1)
   const [imageSize, setImageSize] = useState(null)
   const containerRef = useRef(null)
   const imgRef = useRef(null)
 
-  // We use a placeholder since we'd need a proper image serving endpoint
-  // In production, the backend would serve the uploaded file
   const imageUrl = `/api/drawings/${drawingId}/image`
 
   const handleImageLoad = () => {
@@ -72,7 +71,19 @@ export default function DrawingCanvas({ drawingId, findings }) {
               </p>
             </div>
           </div>
-          <BalloonOverlay findings={findings} imageSize={imageSize} />
+
+          {/* Balloon overlay: use InspectionBalloonOverlay when balloon data is available */}
+          {balloons.length > 0 && imageSize ? (
+            <InspectionBalloonOverlay
+              balloons={balloons}
+              highlightBalloon={selectedBalloon}
+              onBalloonClick={onBalloonClick}
+              width={imageSize.width}
+              height={imageSize.height}
+            />
+          ) : (
+            <BalloonOverlay findings={findings} imageSize={imageSize} />
+          )}
         </div>
       </div>
     </div>

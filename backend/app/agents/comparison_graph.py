@@ -11,6 +11,7 @@ from app.agents.state import ComparisonState, AuditState
 from app.agents.ingestor import run_ingestor
 from app.agents.comparator import run_comparator
 from app.agents.comparison_reporter import run_comparison_reporter
+from app.agents.sherlock import run_sherlock
 from app.services.ws_manager import manager
 
 
@@ -87,6 +88,10 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
     import os
     logger = logging.getLogger(__name__)
 
+    from sqlalchemy import select
+    from app.database import async_session
+    from app.models import Drawing
+
     session_id = state.get("session_id", "")
     check_file_path = state.get("check_file_path", "")
 
@@ -108,16 +113,6 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
         return {**state, "check_machine_state": {}, "agent_log": state.get("agent_log", [])}
 
     logger.info(f"Check ingestor: file validated, size={os.path.getsize(check_file_path)} bytes")
-
-    # Delay to avoid rate limits after master ingestion
-    # Gemini free tier has strict rate limits (2 RPM for some models)
-    # Wait 45 seconds to ensure rate limit resets
-    logger.info("Check ingestor: waiting 45s before extraction to avoid rate limits...")
-    await manager.send_session_event(
-        uuid.UUID(session_id), "ingestor", "thought",
-        {"message": "Waiting for API rate limit cooldown (45s)..."},
-    )
-    await asyncio.sleep(45)
 
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
@@ -162,6 +157,38 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
             {"message": f"Check extraction failed: {error_type}: {error_msg[:100]}"},
         )
         ms = {}
+
+    # Persist initial "pending" balloons for check drawing so they show during comparison
+    check_drawing_id = state.get("check_drawing_id", "")
+    if ms and ms.get("dimensions") and check_drawing_id:
+        try:
+            async with async_session() as db:
+                row = await db.execute(
+                    select(Drawing).where(Drawing.id == uuid.UUID(check_drawing_id))
+                )
+                drawing = row.scalar_one_or_none()
+                if drawing:
+                    balloons = []
+                    for i, dim in enumerate(ms.get("dimensions", [])):
+                        coords = dim.get("coordinates", {})
+                        if coords:
+                            balloons.append({
+                                "balloon_number": i + 1,
+                                "value": dim.get("value", 0),
+                                "unit": dim.get("unit", "mm"),
+                                "coordinates": coords,
+                                "tolerance_class": dim.get("tolerance_class"),
+                                "nominal": dim.get("nominal") or dim.get("value"),
+                                "upper_tol": dim.get("upper_tol"),
+                                "lower_tol": dim.get("lower_tol"),
+                                "status": "pending",
+                            })
+                    drawing.balloon_data = balloons
+                    drawing.machine_state = ms
+                    await db.commit()
+                    logger.info(f"Check ingestor: saved {len(balloons)} initial balloons")
+        except Exception as e:
+            logger.warning(f"Check ingestor: failed to save initial balloons: {e}")
 
     await manager.send_session_event(
         uuid.UUID(session_id), "ingestor", "thought",
@@ -212,6 +239,89 @@ async def comparator_node(state: ComparisonState) -> ComparisonState:
     return result
 
 
+async def sherlock_node(state: ComparisonState) -> ComparisonState:
+    """Run Sherlock cross-verification on both master and check drawings."""
+    session_id = state.get("session_id", "")
+
+    await manager.send_session_event(
+        uuid.UUID(session_id), "sherlock", "thought",
+        {"message": "Running Sherlock cross-verification on both drawings..."},
+    )
+
+    master_ms = state.get("master_machine_state") or {}
+    check_ms = state.get("check_machine_state") or {}
+
+    # Build temporary AuditStates for Sherlock
+    master_audit: AuditState = {
+        "drawing_id": state.get("master_drawing_id", ""),
+        "file_path": state.get("master_file_path", ""),
+        "machine_state": master_ms,
+        "findings": [],
+        "agent_log": [],
+        "reflexion_count": 0,
+        "status": "started",
+        "crop_region": None,
+        "rfi": None,
+        "inspection_sheet": None,
+        "integrity_score": None,
+    }
+    check_audit: AuditState = {
+        "drawing_id": state.get("check_drawing_id", ""),
+        "file_path": state.get("check_file_path", ""),
+        "machine_state": check_ms,
+        "findings": [],
+        "agent_log": [],
+        "reflexion_count": 0,
+        "status": "started",
+        "crop_region": None,
+        "rfi": None,
+        "inspection_sheet": None,
+        "integrity_score": None,
+    }
+
+    # Run Sherlock on both drawings in parallel
+    master_result, check_result = await asyncio.gather(
+        run_sherlock(master_audit),
+        run_sherlock(check_audit),
+    )
+
+    # Tag findings with their drawing role for display
+    master_findings = master_result.get("findings", [])
+    for f in master_findings:
+        f["drawing_role"] = "master"
+
+    check_findings = check_result.get("findings", [])
+    for f in check_findings:
+        f["drawing_role"] = "check"
+
+    all_findings = list(state.get("findings", [])) + master_findings + check_findings
+
+    master_count = len(master_findings)
+    check_count = len(check_findings)
+
+    await manager.send_session_event(
+        uuid.UUID(session_id), "sherlock", "thought",
+        {
+            "message": f"Sherlock complete: {master_count} findings on master, "
+                       f"{check_count} findings on check drawing",
+        },
+    )
+
+    agent_log = list(state.get("agent_log", []))
+    agent_log.append({
+        "agent": "sherlock",
+        "action": "cross_verification",
+        "master_findings": master_count,
+        "check_findings": check_count,
+    })
+
+    return {
+        **state,
+        "findings": all_findings,
+        "agent_log": agent_log,
+    }
+
+
 async def reporter_node(state: ComparisonState) -> ComparisonState:
     session_id = state.get("session_id", "")
 
@@ -243,12 +353,14 @@ def build_comparison_graph() -> StateGraph:
     graph.add_node("master_ingestor", master_ingestor_node)
     graph.add_node("check_ingestor", check_ingestor_node)
     graph.add_node("comparator", comparator_node)
+    graph.add_node("sherlock", sherlock_node)
     graph.add_node("reporter", reporter_node)
 
     graph.set_entry_point("master_ingestor")
     graph.add_edge("master_ingestor", "check_ingestor")
     graph.add_edge("check_ingestor", "comparator")
-    graph.add_edge("comparator", "reporter")
+    graph.add_edge("comparator", "sherlock")
+    graph.add_edge("sherlock", "reporter")
     graph.add_edge("reporter", END)
 
     return graph.compile()

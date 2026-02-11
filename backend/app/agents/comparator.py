@@ -216,7 +216,7 @@ def _build_comparison(
     balloon_num: int, master_dim: dict, check_dim: Optional[dict],
 ) -> dict:
     """Build a comparison item dict from a master dimension and optional check dimension."""
-    nominal = master_dim.get("nominal") or master_dim.get("value", 0)
+    nominal = _to_float(master_dim.get("nominal")) or _to_float(master_dim.get("value"))
 
     if check_dim is None:
         return {
@@ -224,8 +224,8 @@ def _build_comparison(
             "feature_description": _describe_dimension(master_dim),
             "zone": master_dim.get("zone"),
             "master_nominal": nominal,
-            "master_upper_tol": master_dim.get("upper_tol"),
-            "master_lower_tol": master_dim.get("lower_tol"),
+            "master_upper_tol": _to_float(master_dim.get("upper_tol")),
+            "master_lower_tol": _to_float(master_dim.get("lower_tol")),
             "master_unit": master_dim.get("unit", "mm"),
             "master_tolerance_class": master_dim.get("tolerance_class"),
             "check_actual": None,
@@ -243,11 +243,11 @@ def _build_comparison(
         "feature_description": _describe_dimension(master_dim),
         "zone": master_dim.get("zone"),
         "master_nominal": nominal,
-        "master_upper_tol": master_dim.get("upper_tol"),
-        "master_lower_tol": master_dim.get("lower_tol"),
+        "master_upper_tol": _to_float(master_dim.get("upper_tol")),
+        "master_lower_tol": _to_float(master_dim.get("lower_tol")),
         "master_unit": master_dim.get("unit", "mm"),
         "master_tolerance_class": master_dim.get("tolerance_class"),
-        "check_actual": check_dim.get("value"),
+        "check_actual": _to_float(check_dim.get("value")),
         "deviation": round(deviation, 4) if deviation is not None else None,
         "status": status,
         "master_coordinates": master_dim.get("coordinates"),
@@ -332,6 +332,7 @@ async def _llm_match_dimensions(
                 response_mime_type="application/json",
                 temperature=0.1,
             ),
+            request_options={"timeout": 600},
         )
         # Robust JSON parsing
         text = response.text

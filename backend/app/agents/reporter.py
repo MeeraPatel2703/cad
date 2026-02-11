@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 import google.generativeai as genai
 
 from app.config import settings
 from app.agents.state import AuditState
+
+logger = logging.getLogger(__name__)
 
 REPORTER_PROMPT = """You are a mechanical engineering report writer.
 Given the machine state and all audit findings, generate:
@@ -90,18 +93,26 @@ async def run_reporter(state: AuditState) -> AuditState:
         findings=json.dumps(findings, indent=2),
     )
 
+    logger.info("Reporter: sending prompt to Gemini (%d chars)", len(prompt))
     response = await model.generate_content_async(
         prompt,
         generation_config=genai.GenerationConfig(
             response_mime_type="application/json",
             temperature=0.3,
         ),
+        request_options={"timeout": 600},
     )
 
+    resp_text = response.text or ""
+    logger.info("Reporter: Gemini response length: %d chars", len(resp_text))
+    logger.info("Reporter: response preview: %.500s", resp_text[:500])
+
     try:
-        report_data = json.loads(response.text)
-    except json.JSONDecodeError:
-        text = response.text
+        report_data = json.loads(resp_text)
+        logger.info("Reporter: parsed JSON type=%s, keys=%s", type(report_data).__name__, list(report_data.keys()) if isinstance(report_data, dict) else "N/A")
+    except json.JSONDecodeError as e:
+        logger.warning("Reporter: JSON parse failed: %s", e)
+        text = resp_text
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
@@ -110,7 +121,11 @@ async def run_reporter(state: AuditState) -> AuditState:
             report_data = {"rfi": {"items": []}, "inspection_sheet": {"items": []}}
 
     rfi = report_data.get("rfi", {})
+    if not isinstance(rfi, dict):
+        rfi = {"items": rfi} if isinstance(rfi, list) else {}
     inspection_sheet = report_data.get("inspection_sheet", {})
+    if not isinstance(inspection_sheet, dict):
+        inspection_sheet = {"items": inspection_sheet} if isinstance(inspection_sheet, list) else {}
     integrity_score = _calculate_integrity_score(machine_state, findings)
 
     log_entry = {

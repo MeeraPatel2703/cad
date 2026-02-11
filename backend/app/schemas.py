@@ -22,6 +22,7 @@ class DrawingDetail(DrawingOut):
     machine_state: Optional[Dict] = None
     rfi_json: Optional[Dict] = None
     inspection_sheet: Optional[Dict] = None
+    balloon_data: Optional[list] = None
 
 
 class AuditResultOut(BaseModel):
@@ -100,13 +101,13 @@ class ComparisonItemOut(BaseModel):
 class BalloonData(BaseModel):
     balloon_number: int
     value: Optional[float] = None
-    unit: str = "mm"
+    unit: Optional[str] = "mm"
     coordinates: Dict
     tolerance_class: Optional[str] = None
     nominal: Optional[float] = None
     upper_tol: Optional[float] = None
     lower_tol: Optional[float] = None
-    status: str = "pending"
+    status: Optional[str] = "pending"
 
 
 class DrawingBalloons(BaseModel):

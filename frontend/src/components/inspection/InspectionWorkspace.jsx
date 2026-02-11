@@ -1,10 +1,43 @@
 import { useState } from 'react'
-import { Download, ChevronDown, ChevronUp, Play, RotateCcw } from 'lucide-react'
+import { Download, ChevronDown, ChevronUp, Play, RotateCcw, Search } from 'lucide-react'
 import InspectionDrawingPane from './InspectionDrawingPane'
 import InspectionTable from './InspectionTable'
 import AuditLog from '../warroom/AuditLog'
 import IntegrityBadge from '../vault/IntegrityBadge'
 import { rerunComparison } from '../../services/api'
+
+const severityStyles = {
+  critical: 'bg-critical/10 text-critical border-critical/20',
+  warning: 'bg-warning/10 text-warning border-warning/20',
+  info: 'bg-accent/10 text-accent border-accent/20',
+}
+
+function SherlockFindings({ findings }) {
+  if (!findings || findings.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-1.5 p-2 overflow-auto max-h-52">
+      {findings.map((f, i) => (
+        <div
+          key={i}
+          className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${severityStyles[f.severity] || severityStyles.info}`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-[10px] font-semibold uppercase">{f.severity}</span>
+              <span className="text-[10px] opacity-70">{f.drawing_role === 'master' ? 'Master' : 'Check'}</span>
+              {f.category && <span className="text-[10px] opacity-60">{f.category}</span>}
+            </div>
+            <p className="text-[11px] leading-snug">{f.description}</p>
+            {f.recommendation && (
+              <p className="text-[10px] opacity-70 mt-0.5">Fix: {f.recommendation}</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function InspectionWorkspace({
   session,
@@ -15,6 +48,7 @@ export default function InspectionWorkspace({
 }) {
   const [selectedBalloon, setSelectedBalloon] = useState(null)
   const [showLog, setShowLog] = useState(false)
+  const [showFindings, setShowFindings] = useState(false)
   const [auditRunning, setAuditRunning] = useState(false)
 
   if (!session) return null
@@ -32,6 +66,7 @@ export default function InspectionWorkspace({
   }
 
   const summary = session.summary
+  const findings = session.comparison_results?.findings || []
   const masterFilename = session.master_drawing?.filename || 'Master'
   const checkFilename = session.check_drawing?.filename || 'Check'
 
@@ -139,6 +174,23 @@ export default function InspectionWorkspace({
           summary={summary}
         />
       </div>
+
+      {/* Sherlock Findings (collapsible) */}
+      {findings.length > 0 && (
+        <div className="border-t border-border shrink-0">
+          <button
+            onClick={() => setShowFindings(!showFindings)}
+            className="flex items-center justify-between w-full px-4 py-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text-secondary transition-colors bg-bg-card"
+          >
+            <span className="flex items-center gap-1.5">
+              <Search size={12} />
+              Sherlock Findings ({findings.length})
+            </span>
+            {showFindings ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          </button>
+          {showFindings && <SherlockFindings findings={findings} />}
+        </div>
+      )}
 
       {/* Audit Log (collapsible) */}
       <div className="border-t border-border shrink-0">
