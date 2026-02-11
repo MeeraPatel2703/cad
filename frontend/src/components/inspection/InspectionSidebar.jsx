@@ -42,6 +42,28 @@ const severityIcons = {
   info: Info,
 }
 
+const FEATURE_TYPE = {
+  linear:    { label: 'Linear',    symbol: '' },
+  diameter:  { label: 'Dia',       symbol: '\u2300' },  // ⌀
+  radius:    { label: 'Rad',       symbol: 'R' },
+  angular:   { label: 'Ang',       symbol: '\u00B0' },  // °
+  thickness: { label: 'THK',       symbol: 'THK' },
+  thread:    { label: 'Thread',    symbol: 'M' },
+  chamfer:   { label: 'Chamfer',   symbol: 'C' },
+  depth:     { label: 'Depth',     symbol: '\u21A7' },  // ↧
+}
+
+const FEATURE_COLOR = {
+  linear:    'text-text-muted',
+  diameter:  'text-sky-400',
+  radius:    'text-emerald-400',
+  angular:   'text-amber-400',
+  thickness: 'text-violet-400',
+  thread:    'text-rose-400',
+  chamfer:   'text-teal-400',
+  depth:     'text-orange-400',
+}
+
 function formatNum(val) {
   if (val === null || val === undefined) return '--'
   return Number(val).toFixed(3)
@@ -190,12 +212,24 @@ function DimensionsList({ balloons, selectedBalloon, onBalloonClick }) {
               {b.balloon_number}
             </div>
             <div className="flex-1 min-w-0">
-              <span className="text-xs text-text-primary tabular-nums font-mono">
-                {b.value != null ? b.value : '--'}
+              <div className="flex items-center gap-1.5">
+                {(() => {
+                  const ft = FEATURE_TYPE[b.feature_type] || FEATURE_TYPE.linear
+                  const fc = FEATURE_COLOR[b.feature_type] || FEATURE_COLOR.linear
+                  return ft.symbol ? (
+                    <span className={`text-[10px] font-bold ${fc}`}>{ft.symbol}</span>
+                  ) : null
+                })()}
+                <span className="text-xs text-text-primary tabular-nums font-mono">
+                  {b.value != null ? b.value : '--'}
+                </span>
+                {b.tolerance_class && (
+                  <span className="text-[10px] text-text-muted">{b.tolerance_class}</span>
+                )}
+              </div>
+              <span className={`text-[9px] ${FEATURE_COLOR[b.feature_type] || 'text-text-muted'}`}>
+                {(FEATURE_TYPE[b.feature_type] || FEATURE_TYPE.linear).label}
               </span>
-              {b.tolerance_class && (
-                <span className="text-[10px] text-text-muted ml-1.5">{b.tolerance_class}</span>
-              )}
             </div>
             <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
           </div>

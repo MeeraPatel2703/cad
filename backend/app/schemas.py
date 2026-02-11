@@ -108,6 +108,7 @@ class BalloonData(BaseModel):
     upper_tol: Optional[float] = None
     lower_tol: Optional[float] = None
     status: Optional[str] = "pending"
+    feature_type: Optional[str] = "linear"
 
 
 class DrawingBalloons(BaseModel):

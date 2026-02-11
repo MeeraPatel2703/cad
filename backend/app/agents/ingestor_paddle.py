@@ -78,7 +78,7 @@ Return JSON with this structure:
    - value: the numeric value (prefer OCR text if available)
    - unit: "mm" or "in"
    - coordinates: USE THE OCR POSITION {{"x": x_pct, "y": y_pct}} from the OCR data
-   - feature_type: what it measures (diameter, length, thickness, radius, etc.)
+   - feature_type: MUST be one of: "linear", "diameter", "radius", "angular", "thickness", "thread", "chamfer", "depth"
    - tolerance_class: if shown (H7, g6, etc.)
    - upper_tol: upper tolerance if shown
    - lower_tol: lower tolerance if shown

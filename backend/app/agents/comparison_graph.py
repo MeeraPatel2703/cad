@@ -191,6 +191,7 @@ async def check_ingestor_node(state: ComparisonState) -> ComparisonState:
                                 "upper_tol": dim.get("upper_tol"),
                                 "lower_tol": dim.get("lower_tol"),
                                 "status": "pending",
+                                "feature_type": dim.get("feature_type", "linear"),
                             })
                     drawing.balloon_data = balloons
                     drawing.machine_state = ms

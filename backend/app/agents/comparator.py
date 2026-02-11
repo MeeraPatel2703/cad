@@ -218,10 +218,13 @@ def _build_comparison(
     """Build a comparison item dict from a master dimension and optional check dimension."""
     nominal = _to_float(master_dim.get("nominal")) or _to_float(master_dim.get("value"))
 
+    feature_type = master_dim.get("feature_type") or "linear"
+
     if check_dim is None:
         return {
             "balloon_number": balloon_num,
             "feature_description": _describe_dimension(master_dim),
+            "feature_type": feature_type,
             "zone": master_dim.get("zone"),
             "master_nominal": nominal,
             "master_upper_tol": _to_float(master_dim.get("upper_tol")),
@@ -241,6 +244,7 @@ def _build_comparison(
     return {
         "balloon_number": balloon_num,
         "feature_description": _describe_dimension(master_dim),
+        "feature_type": feature_type,
         "zone": master_dim.get("zone"),
         "master_nominal": nominal,
         "master_upper_tol": _to_float(master_dim.get("upper_tol")),
@@ -297,6 +301,7 @@ def _generate_balloons(
             "upper_tol": comp.get("master_upper_tol"),
             "lower_tol": comp.get("master_lower_tol"),
             "status": comp["status"],
+            "feature_type": comp.get("feature_type", "linear"),
         })
 
     return balloons

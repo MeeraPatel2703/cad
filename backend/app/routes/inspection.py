@@ -95,6 +95,7 @@ async def _ingest_master(drawing_id: str, file_path: str, session_id: str):
                         "upper_tol": dim.get("upper_tol"),
                         "lower_tol": dim.get("lower_tol"),
                         "status": "pending",
+                        "feature_type": dim.get("feature_type", "linear"),
                     })
             drawing.balloon_data = balloons
             await db.commit()

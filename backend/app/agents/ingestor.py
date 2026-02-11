@@ -63,7 +63,7 @@ Return JSON with this structure:
    - value: the numeric value (e.g., 25.0)
    - unit: "mm" or "in"
    - coordinates: location as PERCENTAGE of image size (x: 0-100, y: 0-100)
-   - feature_type: what it measures (diameter, length, thickness, etc.)
+   - feature_type: MUST be one of: "linear", "diameter", "radius", "angular", "thickness", "thread", "chamfer", "depth"
    - tolerance_class: if shown (H7, g6, etc.)
    - upper_tol: upper tolerance if shown
    - lower_tol: lower tolerance if shown
