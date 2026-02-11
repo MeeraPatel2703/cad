@@ -86,6 +86,8 @@ class AuditFinding(BaseModel):
     zone: Optional[str] = None
     affected_features: List[str] = Field(default_factory=list)
     recommendation: Optional[str] = None
+    nearest_balloon: Optional[int] = None
+    grid_ref: Optional[str] = None
 
 
 class AuditState(TypedDict, total=False):

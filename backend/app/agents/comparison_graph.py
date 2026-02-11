@@ -251,6 +251,14 @@ async def sherlock_node(state: ComparisonState) -> ComparisonState:
     master_ms = state.get("master_machine_state") or {}
     check_ms = state.get("check_machine_state") or {}
 
+    # Enrich machine states with balloon data so Sherlock can reference balloon numbers
+    master_balloon_data = state.get("master_balloon_data") or []
+    check_balloon_data = state.get("check_balloon_data") or []
+    if master_balloon_data:
+        master_ms = {**master_ms, "balloon_data": master_balloon_data}
+    if check_balloon_data:
+        check_ms = {**check_ms, "balloon_data": check_balloon_data}
+
     # Build temporary AuditStates for Sherlock
     master_audit: AuditState = {
         "drawing_id": state.get("master_drawing_id", ""),

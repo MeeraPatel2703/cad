@@ -59,16 +59,26 @@ Check dimensional consistency:
 - **warning**: May cause manufacturing issues or ambiguity (missing tolerance on non-critical feature)
 - **info**: Best practice violation, documentation improvement needed
 
+## SPATIAL REFERENCING (CRITICAL)
+When the drawing data includes balloon_data, you MUST reference balloon numbers in your findings:
+- Use "at balloon #N" or "near balloon #N" to locate issues
+- Include grid references like "(grid C4)" when zone/grid_ref data is available
+- Use spatial language: "upper-left quadrant", "adjacent to feature Y", "between balloons #2 and #5"
+- Every finding description must be locatable on the drawing by a human reader
+- Example: "Bore diameter at balloon #3 (grid C4, Top View) missing H7 tolerance"
+
 Return findings as JSON array:
 [{{
   "finding_type": "MISMATCH|OMISSION|DECIMAL_ERROR|STACK_UP_ERROR|TOLERANCE_MISSING",
   "severity": "critical|warning|info",
   "category": "consensus|envelope|omission|decimal",
-  "description": "Detailed engineering description with specific values",
+  "description": "Detailed engineering description with specific values AND balloon/location references",
   "affected_features": ["feature names or dimension values involved"],
   "coordinates": {{"x": 0, "y": 0}},
   "item_number": "1"|null,
   "zone": "zone name if applicable",
+  "nearest_balloon": 3,
+  "grid_ref": "C4",
   "evidence": {{
     "expected": "what should be there",
     "found": "what was actually found (or 'missing')",
@@ -80,6 +90,7 @@ Return findings as JSON array:
 
 Be thorough but precise. Every finding MUST have concrete evidence with actual values.
 Do NOT fabricate issues - only report genuine problems found in the data.
+Every description MUST reference the nearest balloon number and spatial location when balloon data is available.
 
 DRAWING DATA:
 """
@@ -155,6 +166,8 @@ async def run_sherlock(state: AuditState) -> AuditState:
             zone=f.get("zone"),
             affected_features=f.get("affected_features") or [],
             recommendation=f.get("recommendation"),
+            nearest_balloon=f.get("nearest_balloon"),
+            grid_ref=f.get("grid_ref"),
         )
         findings.append(finding.model_dump())
 
