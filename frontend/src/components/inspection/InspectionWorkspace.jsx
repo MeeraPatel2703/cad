@@ -3,7 +3,7 @@ import { Download, Play, RotateCcw } from 'lucide-react'
 import InspectionDrawingPane from './InspectionDrawingPane'
 import InspectionSidebar from './InspectionSidebar'
 import IntegrityBadge from '../vault/IntegrityBadge'
-import { rerunComparison } from '../../services/api'
+import { rerunComparison, reviewSession } from '../../services/api'
 
 const statusLabel = {
   awaiting_check: 'Awaiting check drawing...',
@@ -22,6 +22,8 @@ export default function InspectionWorkspace({
 }) {
   const [selectedBalloon, setSelectedBalloon] = useState(null)
   const [auditRunning, setAuditRunning] = useState(false)
+  const [reviewRunning, setReviewRunning] = useState(false)
+  const [reviewResults, setReviewResults] = useState(session?.review_results || null)
 
   if (!session) return null
 
@@ -92,6 +94,35 @@ export default function InspectionWorkspace({
               {session.status === 'error' ? 'Retry Audit' : 'Re-run Audit'}
             </button>
           )}
+          {session.check_drawing && (session.status === 'complete' || session.status === 'error') && (
+            <button
+              onClick={async () => {
+                if (reviewRunning) return
+                setReviewRunning(true)
+                try {
+                  const result = await reviewSession(session.id)
+                  setReviewResults(result)
+                } catch (err) {
+                  console.error('Review failed:', err)
+                } finally {
+                  setReviewRunning(false)
+                }
+              }}
+              disabled={reviewRunning}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all ${
+                reviewRunning
+                  ? 'bg-purple-500/20 text-purple-400 cursor-wait'
+                  : 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border border-purple-500/20'
+              }`}
+            >
+              {reviewRunning ? (
+                <RotateCcw size={14} className="animate-spin" />
+              ) : (
+                <Play size={14} />
+              )}
+              {reviewRunning ? 'Reviewing...' : 'Claude Review'}
+            </button>
+          )}
           {session.comparison_results?.rfi && (
             <button
               onClick={handleExportRFI}
@@ -130,6 +161,7 @@ export default function InspectionWorkspace({
             events={events}
             selectedBalloon={selectedBalloon}
             onBalloonClick={handleBalloonClick}
+            reviewResults={reviewResults}
           />
         </div>
       </div>

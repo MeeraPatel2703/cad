@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Search, AlertTriangle, Info } from 'lucide-react'
 import IntegrityBadge from '../vault/IntegrityBadge'
 import AuditLog from '../warroom/AuditLog'
+import ReviewReport from '../review/ReviewReport'
 
 const STATUS_DOT = {
   pass: 'bg-[#00FF88]',
@@ -63,8 +64,9 @@ export default function InspectionSidebar({
   events = [],
   selectedBalloon,
   onBalloonClick,
+  reviewResults,
 }) {
-  const [activeTab, setActiveTab] = useState('dims')
+  const [activeTab, setActiveTab] = useState(reviewResults ? 'review' : 'dims')
 
   const verified = balloons.filter(b => b.status && b.status !== 'pending').length
   const total = balloons.length
@@ -132,6 +134,16 @@ export default function InspectionSidebar({
             <span className={`text-[10px] ${criticalCount > 0 ? 'text-critical' : 'opacity-60'}`}>{flagCount}</span>
           )}
         </button>
+        {reviewResults && (
+          <button
+            onClick={() => setActiveTab('review')}
+            className={`flex-1 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              activeTab === 'review' ? 'text-accent border-b-2 border-accent' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            Review
+          </button>
+        )}
       </div>
 
       {/* Tab content */}
@@ -156,6 +168,9 @@ export default function InspectionSidebar({
             events={events}
             onBalloonClick={onBalloonClick}
           />
+        )}
+        {activeTab === 'review' && reviewResults && (
+          <ReviewReport results={reviewResults} />
         )}
       </div>
     </div>

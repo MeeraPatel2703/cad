@@ -28,6 +28,7 @@ from app.schemas import (
 )
 from app.agents.comparison_graph import run_comparison
 from app.agents.ingestor import run_ingestor
+from app.agents.review_agent import run_review
 from app.agents.state import AuditState
 from app.services.ws_manager import manager
 from app.services.vector_store import store_machine_state
@@ -503,3 +504,67 @@ async def get_session_image(
     media_type = media_types.get(suffix, "application/octet-stream")
 
     return FileResponse(str(file_path), media_type=media_type, filename=drawing.filename)
+
+
+@router.post("/review")
+async def review_drawings(
+    master: UploadFile = File(...),
+    check: UploadFile = File(...),
+):
+    """Upload master + check drawings and get a Claude-powered review report.
+
+    Stateless — no session or DB storage needed.
+    """
+    master_content = await master.read()
+    check_content = await check.read()
+
+    _, master_path = _save_file(master_content, master.filename)
+    _, check_path = _save_file(check_content, check.filename)
+
+    try:
+        result = await run_review(str(master_path), str(check_path))
+    except Exception as e:
+        logger.error(f"Review failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return result
+
+
+@router.post("/inspection/session/{session_id}/review")
+async def review_session(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run Claude review on an existing session's master + check drawings."""
+    result = await db.execute(select(InspectionSession).where(InspectionSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not session.check_drawing_id:
+        raise HTTPException(status_code=400, detail="No check drawing uploaded yet")
+
+    # Load drawing file paths
+    master_row = await db.execute(select(Drawing).where(Drawing.id == session.master_drawing_id))
+    master_drawing = master_row.scalar_one()
+
+    check_row = await db.execute(select(Drawing).where(Drawing.id == session.check_drawing_id))
+    check_drawing = check_row.scalar_one()
+
+    try:
+        review_result = await run_review(master_drawing.file_path, check_drawing.file_path)
+    except Exception as e:
+        logger.error(f"Session review failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Store result on session
+    session.review_results = review_result
+    await db.commit()
+
+    # Notify via WebSocket
+    await manager.send_session_event(
+        session_id, "review", "complete",
+        {"message": review_result.get("summary", "Review complete")},
+    )
+
+    return review_result

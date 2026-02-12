@@ -4,6 +4,7 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
     DATABASE_URL: str = "postgresql+asyncpg://amia:amia@localhost:5432/amia"
     CHROMA_PERSIST_DIR: str = "./chroma_data"
     VISION_MODEL: str = "gemini-2.0-flash"

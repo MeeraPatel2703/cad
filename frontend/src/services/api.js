@@ -100,3 +100,18 @@ export async function deleteInspectionSession(sessionId) {
   const { data } = await api.delete(`/inspection/session/${sessionId}`)
   return data
 }
+
+// ── Review APIs ──
+
+export async function reviewDrawings(masterFile, checkFile) {
+  const form = new FormData()
+  form.append('master', masterFile)
+  form.append('check', checkFile)
+  const { data } = await api.post('/review', form)
+  return data
+}
+
+export async function reviewSession(sessionId) {
+  const { data } = await api.post(`/inspection/session/${sessionId}/review`)
+  return data
+}

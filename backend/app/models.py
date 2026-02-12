@@ -58,6 +58,7 @@ class InspectionSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     comparison_results: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     summary: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    review_results: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     master_drawing: Mapped[Drawing] = relationship(foreign_keys=[master_drawing_id])
     check_drawing: Mapped[Drawing] = relationship(foreign_keys=[check_drawing_id])

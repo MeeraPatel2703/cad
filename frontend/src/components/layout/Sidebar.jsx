@@ -1,9 +1,10 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Shield, Users } from 'lucide-react'
+import { Shield, Users, ClipboardCheck } from 'lucide-react'
 
 const navItems = [
   { path: '/admin', icon: Shield, label: 'Admin' },
   { path: '/user', icon: Users, label: 'User' },
+  { path: '/check', icon: ClipboardCheck, label: 'Check' },
 ]
 
 export default function Sidebar() {

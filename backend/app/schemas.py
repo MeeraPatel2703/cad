@@ -76,6 +76,7 @@ class InspectionSessionDetail(InspectionSessionOut):
     master_drawing: DrawingOut
     check_drawing: Optional[DrawingOut] = None
     comparison_results: Optional[Dict] = None
+    review_results: Optional[Dict] = None
 
 
 class ComparisonItemOut(BaseModel):
