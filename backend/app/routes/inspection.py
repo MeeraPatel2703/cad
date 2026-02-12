@@ -518,8 +518,8 @@ async def review_drawings(
     master_content = await master.read()
     check_content = await check.read()
 
-    _, master_path = _save_file(master_content, master.filename)
-    _, check_path = _save_file(check_content, check.filename)
+    master_id, master_path = _save_file(master_content, master.filename)
+    check_id, check_path = _save_file(check_content, check.filename)
 
     try:
         result = await run_review(str(master_path), str(check_path))
@@ -527,7 +527,47 @@ async def review_drawings(
         logger.error(f"Review failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    result["master_id"] = str(master_id)
+    result["check_id"] = str(check_id)
     return result
+
+
+@router.get("/review/image/{file_id}")
+async def get_review_image(file_id: uuid.UUID):
+    """Serve an uploaded file by UUID, converting PDFs to PNG."""
+    # Find the file on disk by UUID prefix
+    upload_dir = settings.upload_path
+    matches = list(upload_dir.glob(f"{file_id}.*"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = matches[0]
+    suffix = file_path.suffix.lower()
+
+    if suffix == ".pdf":
+        import fitz
+
+        png_path = file_path.with_suffix(".png")
+        if not png_path.exists():
+            doc = fitz.open(str(file_path))
+            page = doc[0]
+            mat = fitz.Matrix(2, 2)
+            pix = page.get_pixmap(matrix=mat)
+            pix.save(str(png_path))
+            doc.close()
+
+        return FileResponse(str(png_path), media_type="image/png")
+
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".tiff": "image/tiff",
+        ".tif": "image/tiff",
+        ".bmp": "image/bmp",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    return FileResponse(str(file_path), media_type=media_type)
 
 
 @router.post("/inspection/session/{session_id}/review")

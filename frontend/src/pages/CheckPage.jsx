@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { Upload, Loader2, FileText, X } from 'lucide-react'
 import { reviewDrawings } from '../services/api'
 import ReviewReport from '../components/review/ReviewReport'
+import DrawingViewer from '../components/review/DrawingViewer'
 
 const ACCEPTED = '.pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp'
 
@@ -74,6 +75,9 @@ export default function CheckPage() {
 
   const canReview = masterFile && checkFile && !loading
 
+  const masterImageUrl = results?.master_id ? `/api/review/image/${results.master_id}` : null
+  const checkImageUrl = results?.check_id ? `/api/review/image/${results.check_id}` : null
+
   const handleReview = async () => {
     if (!canReview) return
     setLoading(true)
@@ -98,7 +102,7 @@ export default function CheckPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div>
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-text-primary mb-1">Drawing Check</h1>
         <p className="text-xs text-text-muted">
@@ -106,53 +110,48 @@ export default function CheckPage() {
         </p>
       </div>
 
-      {/* Upload zone */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <DropZone
-          label="Master Drawing"
-          file={masterFile}
-          onFile={setMasterFile}
-          onClear={() => setMasterFile(null)}
-          disabled={loading}
-        />
-        <DropZone
-          label="Check Drawing"
-          file={checkFile}
-          onFile={setCheckFile}
-          onClear={() => setCheckFile(null)}
-          disabled={loading}
-        />
-      </div>
+      {/* Upload zone — collapse when results are showing */}
+      {!results && (
+        <>
+          <div className="flex flex-col sm:flex-row gap-4 mb-6">
+            <DropZone
+              label="Master Drawing"
+              file={masterFile}
+              onFile={setMasterFile}
+              onClear={() => setMasterFile(null)}
+              disabled={loading}
+            />
+            <DropZone
+              label="Check Drawing"
+              file={checkFile}
+              onFile={setCheckFile}
+              onClear={() => setCheckFile(null)}
+              disabled={loading}
+            />
+          </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-3 mb-8">
-        <button
-          onClick={handleReview}
-          disabled={!canReview}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-            canReview
-              ? 'bg-accent text-bg hover:bg-accent/90'
-              : 'bg-bg-hover text-text-muted cursor-not-allowed'
-          }`}
-        >
-          {loading ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Analyzing...
-            </>
-          ) : (
-            'Review'
-          )}
-        </button>
-        {(results || masterFile || checkFile) && !loading && (
-          <button
-            onClick={handleReset}
-            className="px-4 py-2.5 rounded-lg text-sm text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-all"
-          >
-            Reset
-          </button>
-        )}
-      </div>
+          <div className="flex items-center gap-3 mb-8">
+            <button
+              onClick={handleReview}
+              disabled={!canReview}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                canReview
+                  ? 'bg-accent text-bg hover:bg-accent/90'
+                  : 'bg-bg-hover text-text-muted cursor-not-allowed'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                'Review'
+              )}
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Error */}
       {error && (
@@ -165,18 +164,35 @@ export default function CheckPage() {
       {loading && (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Loader2 size={32} className="text-accent animate-spin" />
-          <p className="text-sm text-text-muted">Claude is analyzing both drawings...</p>
-          <p className="text-xs text-text-muted">This usually takes 15-30 seconds</p>
+          <p className="text-sm text-text-muted">Running adversarial review (Claude + Gemini)...</p>
+          <p className="text-xs text-text-muted">3 rounds — this takes about 30-60 seconds</p>
         </div>
       )}
 
-      {/* Results */}
+      {/* Results: Side-by-side drawings + report */}
       {results && !loading && (
-        <div className="rounded-xl border border-border bg-bg-panel">
-          <div className="px-4 py-3 border-b border-border">
+        <div className="flex flex-col gap-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-text-secondary">Review Results</h2>
+            <button
+              onClick={handleReset}
+              className="px-4 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-all border border-border"
+            >
+              New Review
+            </button>
           </div>
-          <ReviewReport results={results} />
+
+          {/* Side-by-side drawings */}
+          <div className="grid grid-cols-2 gap-4">
+            <DrawingViewer imageUrl={masterImageUrl} label="Master Drawing" />
+            <DrawingViewer imageUrl={checkImageUrl} label="Check Drawing" />
+          </div>
+
+          {/* Report below */}
+          <div className="rounded-xl border border-border bg-bg-panel">
+            <ReviewReport results={results} />
+          </div>
         </div>
       )}
     </div>

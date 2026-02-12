@@ -1,4 +1,4 @@
-import { CheckCircle, XCircle, AlertTriangle, ArrowRightLeft } from 'lucide-react'
+import { CheckCircle, XCircle, AlertTriangle, ArrowRightLeft, MapPin } from 'lucide-react'
 
 const TYPE_BADGES = {
   dimension: 'bg-sky-400/15 text-sky-400',
@@ -23,33 +23,35 @@ function TypeBadge({ type }) {
 
 function MissingCard({ item, borderColor }) {
   return (
-    <div className={`flex items-start gap-3 rounded-lg border-l-[3px] ${borderColor} bg-bg-card px-4 py-3`}>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="text-sm font-bold text-text-primary font-mono">{item.value}</span>
-          <TypeBadge type={item.type} />
-        </div>
-        <div className="text-[11px] text-text-muted mb-1">{item.location}</div>
-        <p className="text-xs text-text-secondary leading-relaxed">{item.description}</p>
+    <div className={`rounded-lg border-l-[3px] ${borderColor} bg-bg-card px-4 py-3`}>
+      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+        <span className="text-sm font-bold text-text-primary font-mono">{item.value}</span>
+        <TypeBadge type={item.type} />
       </div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <MapPin size={11} className="text-text-muted shrink-0" />
+        <span className="text-[11px] font-medium text-text-secondary">{item.location}</span>
+      </div>
+      <p className="text-xs text-text-muted leading-relaxed">{item.description}</p>
     </div>
   )
 }
 
 function ModifiedCard({ item }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border-l-[3px] border-amber-400 bg-bg-card px-4 py-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <span className="text-sm font-mono">
-            <span className="text-text-muted line-through">{item.master_value}</span>
-            <ArrowRightLeft size={12} className="inline mx-1.5 text-text-muted" />
-            <span className="text-amber-400 font-bold">{item.check_value}</span>
-          </span>
-        </div>
-        <div className="text-[11px] text-text-muted mb-1">{item.location}</div>
-        <p className="text-xs text-text-secondary leading-relaxed">{item.description}</p>
+    <div className="rounded-lg border-l-[3px] border-amber-400 bg-bg-card px-4 py-3">
+      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+        <span className="text-sm font-mono">
+          <span className="text-text-muted line-through">{item.master_value}</span>
+          <ArrowRightLeft size={12} className="inline mx-1.5 text-text-muted" />
+          <span className="text-amber-400 font-bold">{item.check_value}</span>
+        </span>
       </div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <MapPin size={11} className="text-text-muted shrink-0" />
+        <span className="text-[11px] font-medium text-text-secondary">{item.location}</span>
+      </div>
+      <p className="text-xs text-text-muted leading-relaxed">{item.description}</p>
     </div>
   )
 }
