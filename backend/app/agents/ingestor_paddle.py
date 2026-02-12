@@ -1,27 +1,24 @@
-"""Hybrid PaddleOCR + Gemini Reasoning ingestor.
+"""Layered PaddleOCR + Gemini Vision fusion ingestor.
 
-Strategy:
-1. PaddleOCR extracts ALL text regions with precise bounding boxes
-2. Gemini 2.5-pro (reasoning model) receives BOTH the image AND the OCR text list
-3. Gemini cross-references its visual understanding with precise OCR data
-4. Result: better accuracy because Gemini doesn't have to guess at text —
-   it has exact strings + positions, and just needs to interpret them
+Strategy (layered fusion):
+1. PaddleOCR → precise text bounding boxes (accurate positions, but misses some)
+2. Gemini Flash Vision → comprehensive extraction (catches everything, less precise coords)
+3. Fusion → for each Gemini dimension, find closest PaddleOCR text and snap coordinates
+   to the OCR bounding box center. Gemini's completeness + PaddleOCR's positioning.
 
-This replaces the pure-vision approach in ingestor.py where Gemini Flash
-had to do both OCR and interpretation simultaneously.
+This avoids the problem where:
+- PaddleOCR alone misses dimensions (arrows, symbols it can't read)
+- Gemini Vision alone has imprecise coordinate placement
 """
 from __future__ import annotations
 
 import asyncio
-import base64
-import io
 import json
 import logging
+import math
 import re
-from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 
-from PIL import Image
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
 
@@ -29,6 +26,7 @@ from app.config import settings
 from app.agents.state import AuditState, MachineState
 from app.agents.ocr_preprocess import run_paddle_ocr
 from app.agents.ingestor import (
+    run_ingestor,
     _configure_genai,
     _load_images,
     _compute_grid_ref,
@@ -38,285 +36,177 @@ from app.agents.ingestor import (
     _enrich_zones_with_grid,
     _validate_and_adjust_coordinates,
     _validate_extraction,
-    MAX_RETRIES,
-    INITIAL_BACKOFF,
-    GRID_ROWS,
-    GRID_COLS,
 )
 
 logger = logging.getLogger(__name__)
 
-PADDLE_EXTRACTION_PROMPT = """You are an expert mechanical engineering drawing reader.
 
-You have TWO sources of information:
-1. The DRAWING IMAGE (visual) — you can see the full drawing
-2. PRE-EXTRACTED OCR TEXT (below) — precise text regions detected by OCR with exact positions
+def _fuzzy_number_match(gemini_val: float, ocr_text: str) -> bool:
+    """Check if a Gemini dimension value matches an OCR text string."""
+    if gemini_val is None:
+        return False
+    # Extract numbers from OCR text
+    numbers = re.findall(r'[+-]?\d+\.?\d*', ocr_text)
+    for num_str in numbers:
+        try:
+            ocr_val = float(num_str)
+            if ocr_val == 0:
+                continue
+            # Exact match or very close
+            if abs(gemini_val - ocr_val) < 0.01:
+                return True
+            # Within 1% (rounding differences)
+            if abs(gemini_val - ocr_val) / max(abs(ocr_val), 0.001) < 0.01:
+                return True
+        except ValueError:
+            continue
+    return False
 
-Your job: Use BOTH sources to extract a complete, accurate Dynamic Machine State.
 
-## HOW TO USE THE OCR DATA
-The OCR data gives you EXACT text strings and their positions as percentages of the image.
-- Trust OCR for numeric values (it reads digits precisely)
-- Trust your VISUAL understanding for interpreting what each number means
-  (is it a dimension? tolerance? part number?)
-- Cross-reference: if OCR says "25.0" at position (34%, 55%), look at that spot
-  in the image to understand WHAT that 25.0 measures
-- Use OCR positions as your coordinate source — they are more precise than estimating
+def _snap_to_ocr(
+    dimensions: List[Dict],
+    ocr_regions: List[Dict],
+    img_w: int,
+    img_h: int,
+) -> Tuple[List[Dict], int, int]:
+    """Snap Gemini dimension coordinates to nearest matching PaddleOCR text position.
 
-## CRITICAL RULES
-- Use OCR text values for dimensions — do NOT re-read numbers from the image
-- Use the OCR bounding box center (x_pct, y_pct) as the coordinate for each dimension
-- Use your vision to determine feature_type, tolerance_class associations, and BOM links
-- If OCR detected a number but you can see from the image it's not a dimension
-  (e.g., it's a part number, revision, date), exclude it from dimensions
-- If you see a dimension in the image that OCR missed, include it with your best reading
+    For each Gemini dimension:
+    1. Find OCR regions whose text matches the dimension value
+    2. Among matches, pick the one closest to Gemini's estimated position
+    3. Replace coordinates with the OCR bounding box center (more precise)
 
-## OUTPUT FORMAT
-Return JSON with this structure:
+    Returns (snapped_dimensions, snap_count, total_count).
+    """
+    if not ocr_regions:
+        return dimensions, 0, len(dimensions)
 
-1. "dimensions" array - for each dimension callout:
-   - value: the numeric value (prefer OCR text if available)
-   - unit: "mm" or "in"
-   - coordinates: USE THE OCR POSITION {{"x": x_pct, "y": y_pct}} from the OCR data
-   - feature_type: classify by how the dimension appears on the drawing:
-       "diameter" — has ⌀ or Ø symbol, or is a bore/hole/shaft diameter (OCR type "diameter")
-       "radius" — has R prefix (R5, R10, etc.)
-       "angular" — measured in degrees (45°, 90°, etc.)
-       "thread" — thread callout (M10, M12x1.5, etc.) (OCR type "thread")
-       "chamfer" — chamfer callout (C1, 1x45°, etc.)
-       "depth" — has depth symbol ↧ or is a blind hole depth
-       "thickness" — explicitly labeled as thickness/wall thickness/plate thickness (t=, THK)
-       "linear" — all other straight-line measurements (lengths, widths, heights, distances)
-   - tolerance_class: if shown (H7, g6, etc.)
-   - upper_tol: upper tolerance if shown
-   - lower_tol: lower tolerance if shown
-   - item_number: BOM reference number if linked to a balloon
-   - ocr_source: true if this dimension came from OCR data, false if you read it yourself
+    snap_count = 0
 
-2. "part_list" array - from the Bill of Materials/Part List:
-   - item_number, description, material, quantity, weight, weight_unit
+    for dim in dimensions:
+        gemini_val = dim.get("value")
+        gemini_coords = dim.get("coordinates", {})
+        gx = gemini_coords.get("x", 0)
+        gy = gemini_coords.get("y", 0)
 
-3. "zones" array - drawing views found:
-   - name, grid_ref, features
+        # Gemini coords are percentages (0-100), OCR coords are also percentages
+        # Normalize: if Gemini coords look like pixels (>100), convert to pct
+        if gx > 100 or gy > 100:
+            gx_pct = (gx / img_w * 100) if img_w > 0 else gx
+            gy_pct = (gy / img_h * 100) if img_h > 0 else gy
+        else:
+            gx_pct = gx
+            gy_pct = gy
 
-4. "gdt_callouts" array:
-   - symbol, value, datum, coordinates (from OCR positions)
+        best_ocr = None
+        best_dist = float("inf")
 
-5. "title_block" object:
-   - title, drawing_number, revision, material, tolerance_general
+        for region in ocr_regions:
+            ocr_text = region.get("text", "")
+            ocr_type = region.get("type", "")
+            pos = region.get("position", {})
+            ox_pct = pos.get("x_pct", 0)
+            oy_pct = pos.get("y_pct", 0)
 
-Be thorough. Every measurement visible should be captured.
-Prefer OCR text values over your own reading for numeric accuracy.
+            # Skip non-dimension OCR regions
+            if ocr_type in ("section_label", "material", "surface_finish"):
+                continue
 
-## OCR TEXT REGIONS DETECTED:
-{ocr_data}
+            # Check if the OCR text matches the dimension value
+            value_matches = _fuzzy_number_match(gemini_val, ocr_text)
 
-Now analyze the drawing image above together with this OCR data."""
+            if not value_matches:
+                continue
+
+            # Distance in percentage space
+            dist = math.hypot(gx_pct - ox_pct, gy_pct - oy_pct)
+
+            # Accept if within 15% of image (generous to catch offset estimates)
+            if dist < 15 and dist < best_dist:
+                best_dist = dist
+                best_ocr = region
+
+        if best_ocr:
+            pos = best_ocr["position"]
+            dim["coordinates"] = {"x": pos["x_pct"], "y": pos["y_pct"]}
+            dim["_snapped_from_ocr"] = True
+            dim["_snap_distance"] = round(best_dist, 2)
+            snap_count += 1
+
+    return dimensions, snap_count, len(dimensions)
 
 
 async def run_ingestor_paddle(state: AuditState) -> AuditState:
-    """Extract DMS using PaddleOCR pre-processing + Gemini reasoning model.
+    """Extract DMS using layered PaddleOCR + Gemini Vision fusion.
 
     Pipeline:
-    1. Run PaddleOCR → get text regions with bounding boxes
-    2. Format OCR results as structured text
-    3. Send image + OCR text to Gemini 2.5-pro
-    4. Post-process same as original ingestor (grid refs, entity binding, etc.)
+    1. PaddleOCR → precise text positions
+    2. Gemini Flash Vision → comprehensive extraction (same as original ingestor)
+    3. Fusion → snap Gemini coordinates to PaddleOCR positions
+    4. Post-processing (grid refs, entity binding, coordinate validation)
     """
-    _configure_genai()
-
     file_path = state["file_path"]
-    crop_region = state.get("crop_region")
-    is_rescan = crop_region is not None
 
-    # ---------- Phase 1: PaddleOCR ----------
-    logger.info("PaddleIngestor: running PaddleOCR on %s", file_path)
+    # ---------- Phase 1: PaddleOCR (precise positions) ----------
+    logger.info("LayeredIngestor: Phase 1 — PaddleOCR on %s", file_path)
+    ocr_result = None
     try:
         ocr_result = run_paddle_ocr(file_path)
-    except Exception as e:
-        logger.error("PaddleOCR failed: %s — falling back to pure-vision ingestor", e)
-        from app.agents.ingestor import run_ingestor
-        return await run_ingestor(state)
-
-    ocr_summary = ocr_result["summary"]
-    logger.info(
-        "PaddleIngestor: OCR found %d texts (%d dims, %d tols, %d GDT)",
-        ocr_summary["total_texts"],
-        ocr_summary["dimensions"],
-        ocr_summary["tolerances"],
-        ocr_summary["gdt"],
-    )
-
-    # ---------- Phase 2: Format OCR data for the prompt ----------
-    ocr_lines = []
-    for i, region in enumerate(ocr_result["grouped_regions"]):
-        pos = region["position"]
-        ocr_lines.append(
-            f"  [{i+1}] \"{region['text']}\" "
-            f"type={region['type']} "
-            f"conf={region['confidence']:.2f} "
-            f"pos=({pos['x_pct']:.1f}%, {pos['y_pct']:.1f}%) "
-            f"bbox=({pos.get('x1_pct', 0):.1f}%-{pos.get('x2_pct', 0):.1f}%, "
-            f"{pos.get('y1_pct', 0):.1f}%-{pos.get('y2_pct', 0):.1f}%)"
+        ocr_summary = ocr_result["summary"]
+        logger.info(
+            "LayeredIngestor: PaddleOCR found %d texts (%d dims, %d tols)",
+            ocr_summary["total_texts"],
+            ocr_summary["dimensions"],
+            ocr_summary["tolerances"],
         )
-    ocr_text_block = "\n".join(ocr_lines) if ocr_lines else "(No text detected by OCR)"
+    except Exception as e:
+        logger.warning("PaddleOCR failed: %s — continuing with Gemini only", e)
 
-    prompt = PADDLE_EXTRACTION_PROMPT.format(ocr_data=ocr_text_block)
+    # ---------- Phase 2: Gemini Flash Vision (comprehensive) ----------
+    logger.info("LayeredIngestor: Phase 2 — Gemini Flash extraction")
+    gemini_result = await run_ingestor(state)
 
-    # ---------- Phase 3: Load image + send to Gemini reasoning model ----------
-    image_parts, img_size = _load_images(file_path, crop_region)
+    machine_state = gemini_result.get("machine_state", {})
+    if not machine_state:
+        logger.warning("LayeredIngestor: Gemini returned empty machine_state")
+        return gemini_result
 
-    # Use the reasoning model (gemini-2.5-pro) instead of flash
-    model = genai.GenerativeModel(settings.REASONING_MODEL)
+    # ---------- Phase 3: Fusion — snap coordinates ----------
+    if ocr_result and ocr_result.get("text_regions"):
+        logger.info("LayeredIngestor: Phase 3 — Fusing coordinates")
+        dimensions = machine_state.get("dimensions", [])
+        img_w = ocr_result["image_size"]["width"]
+        img_h = ocr_result["image_size"]["height"]
 
-    content_parts = []
-    for img in image_parts:
-        content_parts.append({"inline_data": img})
-    content_parts.append(prompt)
+        dimensions, snap_count, total = _snap_to_ocr(
+            dimensions, ocr_result["text_regions"], img_w, img_h
+        )
 
-    logger.info(
-        "PaddleIngestor: sending image + %d OCR regions to %s",
-        len(ocr_result["grouped_regions"]),
-        settings.REASONING_MODEL,
-    )
+        # Clean up internal fields
+        for d in dimensions:
+            d.pop("_snapped_from_ocr", None)
+            d.pop("_snap_distance", None)
 
-    response = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            logger.info("PaddleIngestor: API call attempt %d/%d", attempt + 1, MAX_RETRIES)
-            response = await model.generate_content_async(
-                content_parts,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1,
-                ),
-                request_options={"timeout": 600},
-            )
-            break
-        except ResourceExhausted:
-            if attempt < MAX_RETRIES - 1:
-                backoff = INITIAL_BACKOFF * (2 ** attempt)
-                logger.warning("Rate limited. Waiting %ds before retry %d/%d", backoff, attempt + 2, MAX_RETRIES)
-                await asyncio.sleep(backoff)
-            else:
-                logger.error("Rate limit exhausted after max retries")
-                raise
+        machine_state["dimensions"] = dimensions
 
-    if response is None:
-        raise RuntimeError("Failed to get response from Gemini API")
+        logger.info(
+            "LayeredIngestor: Snapped %d/%d dimension coordinates to PaddleOCR positions",
+            snap_count, total,
+        )
 
-    resp_text = response.text or ""
-    logger.info("PaddleIngestor: Gemini response length: %d chars", len(resp_text))
-
-    # ---------- Phase 4: Parse JSON (same robust parsing as original) ----------
-    def fix_json(text: str) -> dict:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start < 0 or end <= start:
-            return {}
-        text = text[start:end]
-        text = re.sub(r',\s*([}\]])', r'\1', text)
-        text = re.sub(r':\s*None\b', ': null', text)
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return {}
-
-    try:
-        extracted = json.loads(resp_text)
-        if isinstance(extracted, list):
-            if len(extracted) == 1 and isinstance(extracted[0], dict):
-                extracted = extracted[0]
-            elif len(extracted) > 1:
-                merged = {}
-                for item in extracted:
-                    if isinstance(item, dict):
-                        for k, v in item.items():
-                            if k in merged and isinstance(merged[k], list) and isinstance(v, list):
-                                merged[k].extend(v)
-                            else:
-                                merged[k] = v
-                extracted = merged
-            else:
-                extracted = {}
-    except json.JSONDecodeError as e:
-        logger.warning("JSON parse failed: %s, attempting fix", e)
-        extracted = fix_json(resp_text)
-
-    dims_count = len(extracted.get("dimensions", []))
-    ocr_sourced = sum(1 for d in extracted.get("dimensions", []) if d.get("ocr_source"))
-    logger.info(
-        "PaddleIngestor: extracted %d dimensions (%d from OCR, %d from vision)",
-        dims_count, ocr_sourced, dims_count - ocr_sourced,
-    )
-
-    # ---------- Phase 5: Post-processing (same as original ingestor) ----------
-    part_list = extracted.get("part_list", [])
-    entity_registry = _build_entity_registry(part_list)
-
-    zones = extracted.get("zones", [])
-    zones = _enrich_zones_with_grid(zones, img_size)
-    extracted["zones"] = zones
-
-    dimensions = extracted.get("dimensions", [])
-    # Strip the ocr_source field before binding (not part of the schema)
-    for d in dimensions:
-        d.pop("ocr_source", None)
-    dimensions = _bind_dimensions_to_entities(dimensions, entity_registry, img_size)
-    dimensions = _validate_and_adjust_coordinates(dimensions, file_path, img_size)
-    extracted["dimensions"] = dimensions
-
-    gdt_callouts = extracted.get("gdt_callouts", [])
-    for callout in gdt_callouts:
-        coords = callout.get("coordinates") or {}
-        scaled_coords = _scale_coordinates(coords, img_size[0], img_size[1])
-        callout["coordinates"] = scaled_coords
-        x, y = scaled_coords.get("x", 0), scaled_coords.get("y", 0)
-        if not callout.get("grid_ref"):
-            callout["grid_ref"] = _compute_grid_ref(x, y, img_size[0], img_size[1])
-    extracted["gdt_callouts"] = gdt_callouts
-
-    validation = _validate_extraction(extracted, entity_registry)
-
-    if is_rescan and state.get("machine_state"):
-        existing = state["machine_state"]
-        for key in ["dimensions", "part_list", "gdt_callouts"]:
-            if key in extracted and extracted[key]:
-                existing[key] = extracted[key]
-        machine_state = existing
+        # Update the agent log with fusion stats
+        agent_log = gemini_result.get("agent_log", [])
+        agent_log.append({
+            "agent": "ingestor",
+            "action": "paddle_ocr_fusion",
+            "ocr_texts_found": ocr_result["summary"]["total_texts"],
+            "dimensions_snapped": snap_count,
+            "dimensions_total": total,
+            "snap_rate": round(snap_count / max(total, 1) * 100, 1),
+        })
+        gemini_result["agent_log"] = agent_log
     else:
-        try:
-            machine_state = MachineState(**extracted).model_dump()
-        except Exception as e:
-            logger.warning("MachineState validation failed: %s — using raw dict", e)
-            machine_state = {
-                "zones": extracted.get("zones", []),
-                "dimensions": extracted.get("dimensions", []),
-                "part_list": extracted.get("part_list", []),
-                "gdt_callouts": extracted.get("gdt_callouts", []),
-                "raw_text": extracted.get("raw_text", ""),
-                "title_block": extracted.get("title_block", {}),
-            }
+        logger.info("LayeredIngestor: No OCR data — using Gemini coordinates as-is")
 
-    log_entry = {
-        "agent": "ingestor",
-        "action": "paddle_ocr_extraction" if not is_rescan else "paddle_ocr_rescan",
-        "zones_found": len(machine_state.get("zones", [])),
-        "dimensions_found": len(machine_state.get("dimensions", [])),
-        "parts_found": len(machine_state.get("part_list", [])),
-        "gdt_callouts_found": len(machine_state.get("gdt_callouts", [])),
-        "entity_binding": validation,
-        "image_size": {"width": img_size[0], "height": img_size[1]},
-        "ocr_summary": ocr_summary,
-    }
-
-    agent_log = state.get("agent_log", [])
-    agent_log.append(log_entry)
-
-    return {
-        **state,
-        "machine_state": machine_state,
-        "agent_log": agent_log,
-        "status": "ingested",
-        "crop_region": None,
-    }
+    gemini_result["machine_state"] = machine_state
+    return gemini_result
