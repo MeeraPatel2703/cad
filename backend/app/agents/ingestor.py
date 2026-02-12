@@ -63,7 +63,15 @@ Return JSON with this structure:
    - value: the numeric value (e.g., 25.0)
    - unit: "mm" or "in"
    - coordinates: location as PERCENTAGE of image size (x: 0-100, y: 0-100)
-   - feature_type: MUST be one of: "linear", "diameter", "radius", "angular", "thickness", "thread", "chamfer", "depth"
+   - feature_type: classify by how the dimension appears on the drawing:
+       "diameter" — has ⌀ or Ø symbol, or is a bore/hole/shaft diameter
+       "radius" — has R prefix (R5, R10, etc.)
+       "angular" — measured in degrees (45°, 90°, etc.)
+       "thread" — thread callout (M10, M12x1.5, 1/4-20 UNC, etc.)
+       "chamfer" — chamfer callout (C1, 1x45°, 0.5x45°, etc.)
+       "depth" — has depth symbol ↧ or is a blind hole depth
+       "thickness" — explicitly labeled as thickness, wall thickness, or plate thickness (t=, THK)
+       "linear" — all other straight-line measurements (lengths, widths, heights, distances, overall dims)
    - tolerance_class: if shown (H7, g6, etc.)
    - upper_tol: upper tolerance if shown
    - lower_tol: lower tolerance if shown

@@ -83,15 +83,30 @@ def _classify_text(text: str) -> str:
     # Tolerance like +0.05 / -0.02
     if re.match(r'^[+-]\d+\.?\d*$', text_stripped):
         return "tolerance"
-    # Diameter symbol
-    if text_stripped.startswith(('Ø', 'ø', 'φ', 'Φ')) or 'dia' in text_stripped.lower():
+    # Diameter symbol — ⌀, Ø, ø, φ, Φ prefix or "dia" keyword
+    if text_stripped.startswith(('Ø', 'ø', 'φ', 'Φ', '⌀')) or re.match(r'^[Dd]ia\.?\s*\d', text_stripped):
         return "diameter"
+    # Radius — R prefix followed by number
+    if re.match(r'^[Rr]\d+\.?\d*$', text_stripped):
+        return "radius"
+    # Angular — number followed by degree symbol, or just degrees
+    if re.search(r'\d+\.?\d*\s*[°˚º]', text_stripped) or text_stripped.endswith(('°', '˚', 'º')):
+        return "angular"
+    # Chamfer — C prefix or NxN° pattern
+    if re.match(r'^[Cc]\d+\.?\d*$', text_stripped) or re.match(r'^\d+\.?\d*\s*[xX×]\s*45', text_stripped):
+        return "chamfer"
+    # Thread spec — M10, M12x1.5, UNC, UNF patterns
+    if re.match(r'^M\d+', text_stripped, re.IGNORECASE) or re.search(r'UN[CF]', text_stripped):
+        return "thread"
+    # Depth — depth symbol ↧ or "DEPTH" or "DP" keyword
+    if '↧' in text_stripped or re.match(r'^(DEPTH|DP)\b', text_stripped, re.IGNORECASE):
+        return "depth"
+    # Thickness — THK, t= patterns
+    if re.match(r'^(THK|t\s*=)', text_stripped, re.IGNORECASE) or 'thickness' in text_stripped.lower():
+        return "thickness"
     # Tolerance class like H7, g6, js15
     if re.match(r'^[A-Za-z]{1,2}\d{1,2}$', text_stripped):
         return "tolerance_class"
-    # Thread spec like M10x1.5
-    if re.match(r'^M\d+', text_stripped, re.IGNORECASE):
-        return "thread"
     # GD&T symbols
     if any(s in text_stripped for s in ['⌀', '⏥', '⊥', '∥', '⊙', '◎', '⌖']):
         return "gdt"

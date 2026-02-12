@@ -78,7 +78,15 @@ Return JSON with this structure:
    - value: the numeric value (prefer OCR text if available)
    - unit: "mm" or "in"
    - coordinates: USE THE OCR POSITION {{"x": x_pct, "y": y_pct}} from the OCR data
-   - feature_type: MUST be one of: "linear", "diameter", "radius", "angular", "thickness", "thread", "chamfer", "depth"
+   - feature_type: classify by how the dimension appears on the drawing:
+       "diameter" — has ⌀ or Ø symbol, or is a bore/hole/shaft diameter (OCR type "diameter")
+       "radius" — has R prefix (R5, R10, etc.)
+       "angular" — measured in degrees (45°, 90°, etc.)
+       "thread" — thread callout (M10, M12x1.5, etc.) (OCR type "thread")
+       "chamfer" — chamfer callout (C1, 1x45°, etc.)
+       "depth" — has depth symbol ↧ or is a blind hole depth
+       "thickness" — explicitly labeled as thickness/wall thickness/plate thickness (t=, THK)
+       "linear" — all other straight-line measurements (lengths, widths, heights, distances)
    - tolerance_class: if shown (H7, g6, etc.)
    - upper_tol: upper tolerance if shown
    - lower_tol: lower tolerance if shown
