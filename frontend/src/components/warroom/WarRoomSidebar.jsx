@@ -8,6 +8,7 @@ const STATUS_DOT = {
   fail: 'bg-[#FF0040]',
   warning: 'bg-[#FF6B00]',
   deviation: 'bg-[#00BFFF]',
+  missing: 'bg-[#A855F7]',
   not_found: 'bg-text-muted',
   pending: 'bg-text-muted',
 }
@@ -17,6 +18,7 @@ const BALLOON_CIRCLE = {
   fail: 'border-[#FF0040] text-[#FF0040]',
   warning: 'border-[#FF6B00] text-[#FF6B00]',
   deviation: 'border-[#00BFFF] text-[#00BFFF]',
+  missing: 'border-[#A855F7] text-[#A855F7]',
   not_found: 'border-text-muted text-text-muted',
   pending: 'border-text-muted text-text-muted',
 }

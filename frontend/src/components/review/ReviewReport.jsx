@@ -21,9 +21,14 @@ function TypeBadge({ type }) {
   )
 }
 
-function MissingCard({ item, borderColor }) {
+function MissingCard({ item, borderColor, isSelected, onClick }) {
   return (
-    <div className={`rounded-lg border-l-[3px] ${borderColor} bg-bg-card px-4 py-3`}>
+    <div
+      onClick={onClick}
+      className={`rounded-lg border-l-[3px] ${borderColor} bg-bg-card px-4 py-3 cursor-pointer transition-all hover:bg-bg-hover ${
+        isSelected ? 'ring-2 ring-accent ring-offset-1 ring-offset-bg-panel' : ''
+      }`}
+    >
       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
         <span className="text-sm font-bold text-text-primary font-mono">{item.value}</span>
         <TypeBadge type={item.type} />
@@ -37,9 +42,14 @@ function MissingCard({ item, borderColor }) {
   )
 }
 
-function ModifiedCard({ item }) {
+function ModifiedCard({ item, isSelected, onClick }) {
   return (
-    <div className="rounded-lg border-l-[3px] border-amber-400 bg-bg-card px-4 py-3">
+    <div
+      onClick={onClick}
+      className={`rounded-lg border-l-[3px] border-amber-400 bg-bg-card px-4 py-3 cursor-pointer transition-all hover:bg-bg-hover ${
+        isSelected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-bg-panel' : ''
+      }`}
+    >
       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
         <span className="text-sm font-mono">
           <span className="text-text-muted line-through">{item.master_value}</span>
@@ -56,11 +66,17 @@ function ModifiedCard({ item }) {
   )
 }
 
-export default function ReviewReport({ results }) {
+export default function ReviewReport({ results, onItemClick, selectedItem }) {
   if (!results) return null
 
   const { missing_dimensions = [], missing_tolerances = [], modified_values = [], summary } = results
   const totalIssues = missing_dimensions.length + missing_tolerances.length + modified_values.length
+
+  const makeKey = (category, index) => `${category}-${index}`
+  const handleClick = (category, index, item) => {
+    const key = makeKey(category, index)
+    onItemClick?.(key, item)
+  }
 
   if (totalIssues === 0) {
     return (
@@ -94,7 +110,13 @@ export default function ReviewReport({ results }) {
           </div>
           <div className="flex flex-col gap-2">
             {missing_dimensions.map((item, i) => (
-              <MissingCard key={i} item={item} borderColor="border-critical" />
+              <MissingCard
+                key={i}
+                item={item}
+                borderColor="border-critical"
+                isSelected={selectedItem === makeKey('missing_dim', i)}
+                onClick={() => handleClick('missing_dim', i, item)}
+              />
             ))}
           </div>
         </div>
@@ -112,7 +134,13 @@ export default function ReviewReport({ results }) {
           </div>
           <div className="flex flex-col gap-2">
             {missing_tolerances.map((item, i) => (
-              <MissingCard key={i} item={item} borderColor="border-orange-400" />
+              <MissingCard
+                key={i}
+                item={item}
+                borderColor="border-orange-400"
+                isSelected={selectedItem === makeKey('missing_tol', i)}
+                onClick={() => handleClick('missing_tol', i, item)}
+              />
             ))}
           </div>
         </div>
@@ -130,7 +158,12 @@ export default function ReviewReport({ results }) {
           </div>
           <div className="flex flex-col gap-2">
             {modified_values.map((item, i) => (
-              <ModifiedCard key={i} item={item} />
+              <ModifiedCard
+                key={i}
+                item={item}
+                isSelected={selectedItem === makeKey('modified', i)}
+                onClick={() => handleClick('modified', i, item)}
+              />
             ))}
           </div>
         </div>

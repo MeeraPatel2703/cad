@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from sqlalchemy import String, Text, Float, Integer, ForeignKey, DateTime, JSON, Uuid
+from sqlalchemy import String, Text, Float, Integer, Boolean, ForeignKey, DateTime, JSON, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -84,5 +84,9 @@ class ComparisonItem(Base):
     master_coordinates: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     check_coordinates: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    highlight_region: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    check_highlight_region: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    master_ocr_verified: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    check_ocr_verified: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     session: Mapped[InspectionSession] = relationship(back_populates="comparison_items")

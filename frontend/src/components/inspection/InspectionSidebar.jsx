@@ -9,6 +9,7 @@ const STATUS_DOT = {
   fail: 'bg-[#FF0040]',
   warning: 'bg-[#FF6B00]',
   deviation: 'bg-[#00BFFF]',
+  missing: 'bg-[#A855F7]',
   not_found: 'bg-text-muted',
   pending: 'bg-text-muted',
 }
@@ -18,6 +19,7 @@ const BALLOON_CIRCLE = {
   fail: 'border-[#FF0040] text-[#FF0040]',
   warning: 'border-[#FF6B00] text-[#FF6B00]',
   deviation: 'border-[#00BFFF] text-[#00BFFF]',
+  missing: 'border-[#A855F7] text-[#A855F7]',
   not_found: 'border-text-muted text-text-muted',
   pending: 'border-text-muted text-text-muted',
 }
@@ -27,6 +29,7 @@ const STATUS_LABELS = {
   fail: 'FAIL',
   warning: 'WARN',
   deviation: 'DEV',
+  missing: 'MISS',
   not_found: 'N/F',
   pending: '---',
 }
@@ -65,6 +68,9 @@ export default function InspectionSidebar({
   selectedBalloon,
   onBalloonClick,
   reviewResults,
+  onReviewItemClick,
+  selectedReviewItem,
+  activeHighlight,
 }) {
   const [activeTab, setActiveTab] = useState(reviewResults ? 'review' : 'dims')
 
@@ -160,6 +166,7 @@ export default function InspectionSidebar({
             items={comparisonItems}
             selectedBalloon={selectedBalloon}
             onRowClick={onBalloonClick}
+            activeHighlightBalloon={activeHighlight?.balloon_number}
           />
         )}
         {activeTab === 'flags' && (
@@ -170,7 +177,11 @@ export default function InspectionSidebar({
           />
         )}
         {activeTab === 'review' && reviewResults && (
-          <ReviewReport results={reviewResults} />
+          <ReviewReport
+            results={reviewResults}
+            onItemClick={onReviewItemClick}
+            selectedItem={selectedReviewItem}
+          />
         )}
       </div>
     </div>
@@ -220,7 +231,7 @@ function DimensionsList({ balloons, selectedBalloon, onBalloonClick }) {
   )
 }
 
-function TolerancesList({ items, selectedBalloon, onRowClick }) {
+function TolerancesList({ items, selectedBalloon, onRowClick, activeHighlightBalloon }) {
   if (!items.length) {
     return (
       <div className="flex items-center justify-center h-32 text-xs text-text-muted">
@@ -242,19 +253,32 @@ function TolerancesList({ items, selectedBalloon, onRowClick }) {
       </div>
       {items.map((item) => {
         const isSelected = selectedBalloon === item.balloon_number
+        const isActiveHighlight = activeHighlightBalloon === item.balloon_number
         return (
           <div
             key={item.balloon_number}
             onClick={() => onRowClick?.(item.balloon_number)}
             className={`grid grid-cols-7 gap-1 px-3 py-2 text-[11px] font-mono tabular-nums cursor-pointer transition-all hover:bg-bg-hover ${
-              isSelected ? 'bg-accent/10 border-l-2 border-accent' : 'border-l-2 border-transparent'
+              isActiveHighlight ? 'bg-critical/10 border-l-2 border-critical ring-1 ring-critical/30'
+                : isSelected ? 'bg-accent/10 border-l-2 border-accent'
+                : 'border-l-2 border-transparent'
             }`}
           >
             <span className="font-bold text-text-secondary">{item.balloon_number}</span>
-            <span className="text-text-primary">{formatNum(item.master_nominal)}</span>
+            <span className="text-text-primary flex items-center gap-0.5">
+              {formatNum(item.master_nominal)}
+              {item.master_ocr_verified === false && (
+                <AlertTriangle size={9} className="text-warning shrink-0" title="OCR could not verify this value" />
+              )}
+            </span>
             <span className="text-[#00FF88]">{formatTol(item.master_upper_tol)}</span>
             <span className="text-[#FF0040]">{formatTol(item.master_lower_tol)}</span>
-            <span className="text-text-primary">{formatNum(item.check_actual)}</span>
+            <span className="text-text-primary flex items-center gap-0.5">
+              {formatNum(item.check_actual)}
+              {item.check_ocr_verified === false && (
+                <AlertTriangle size={9} className="text-warning shrink-0" title="OCR could not verify this value" />
+              )}
+            </span>
             <span className={
               item.status === 'fail' ? 'text-critical font-bold' :
               item.status === 'warning' ? 'text-warning' :

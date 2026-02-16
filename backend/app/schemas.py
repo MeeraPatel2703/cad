@@ -95,6 +95,10 @@ class ComparisonItemOut(BaseModel):
     master_coordinates: Optional[Dict] = None
     check_coordinates: Optional[Dict] = None
     notes: Optional[str] = None
+    highlight_region: Optional[Dict] = None
+    check_highlight_region: Optional[Dict] = None
+    master_ocr_verified: Optional[bool] = None
+    check_ocr_verified: Optional[bool] = None
 
     model_config = {"from_attributes": True}
 

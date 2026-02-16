@@ -5,6 +5,7 @@ const STATUS_COLORS = {
   fail: { stroke: '#FF0040', fill: 'rgba(255,0,64,0.15)', text: '#FF0040' },
   warning: { stroke: '#FF6B00', fill: 'rgba(255,107,0,0.15)', text: '#FF6B00' },
   deviation: { stroke: '#00BFFF', fill: 'rgba(0,191,255,0.15)', text: '#00BFFF' },  // Blue for intentional deviations
+  missing: { stroke: '#A855F7', fill: 'rgba(168,85,247,0.15)', text: '#A855F7' },   // Purple for missing from check
   not_found: { stroke: '#555555', fill: 'rgba(85,85,85,0.15)', text: '#555555' },
   pending: { stroke: '#555555', fill: 'rgba(85,85,85,0.10)', text: '#555555' },
 }

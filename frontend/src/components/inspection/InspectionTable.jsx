@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
-import { ArrowUpDown, Download, Filter } from 'lucide-react'
+import { ArrowUpDown, Download, Filter, AlertTriangle } from 'lucide-react'
 
 const STATUS_STYLES = {
   pass: 'text-success bg-success/5',
   fail: 'text-critical bg-critical/8',
   warning: 'text-warning bg-warning/6',
   deviation: 'text-sky-400 bg-sky-400/5',  // Blue for intentional customizations
+  missing: 'text-purple-400 bg-purple-400/8',  // Purple for missing from check
   not_found: 'text-text-muted bg-bg-card',
   pending: 'text-text-muted bg-bg-card',
 }
@@ -15,11 +16,12 @@ const STATUS_LABELS = {
   fail: 'FAIL',
   warning: 'WARN',
   deviation: 'DEV',  // Intentional deviation
+  missing: 'MISS',   // Missing from check drawing
   not_found: 'N/F',
   pending: '---',
 }
 
-const FILTERS = ['all', 'pass', 'fail', 'warning', 'deviation', 'not_found']
+const FILTERS = ['all', 'pass', 'fail', 'warning', 'deviation', 'missing', 'not_found']
 
 function formatNum(val) {
   if (val === null || val === undefined) return '--'
@@ -179,16 +181,34 @@ export default function InspectionTable({
                   <td className="px-3 py-1.5 font-bold text-text-secondary">{item.balloon_number}</td>
                   <td className="px-3 py-1.5 text-text-primary truncate max-w-[200px]">{item.feature_description}</td>
                   <td className="px-3 py-1.5 text-text-muted">{item.zone || '--'}</td>
-                  <td className="px-3 py-1.5 text-right text-text-primary tabular-nums">{formatNum(item.master_nominal)}</td>
+                  <td className="px-3 py-1.5 text-right text-text-primary tabular-nums">
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {formatNum(item.master_nominal)}
+                      {item.master_ocr_verified === false && (
+                        <AlertTriangle size={10} className="text-warning shrink-0" title="OCR could not verify this value in the master drawing" />
+                      )}
+                    </span>
+                  </td>
                   <td className="px-3 py-1.5 text-right text-text-muted tabular-nums">{formatTol(item.master_upper_tol)}</td>
                   <td className="px-3 py-1.5 text-right text-text-muted tabular-nums">{formatTol(item.master_lower_tol)}</td>
-                  <td className="px-3 py-1.5 text-right text-text-primary tabular-nums">{formatNum(item.check_actual)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {item.status === 'missing'
+                      ? <span className="text-purple-400 italic text-[10px]">Not found</span>
+                      : <span className="inline-flex items-center gap-1 justify-end text-text-primary">
+                          {formatNum(item.check_actual)}
+                          {item.check_ocr_verified === false && (
+                            <AlertTriangle size={10} className="text-warning shrink-0" title="OCR could not verify this value in the check drawing" />
+                          )}
+                        </span>
+                    }
+                  </td>
                   <td className={`px-3 py-1.5 text-right tabular-nums ${
                     item.status === 'fail' ? 'text-critical font-bold' :
                     item.status === 'warning' ? 'text-warning' :
-                    item.status === 'deviation' ? 'text-sky-400' : 'text-text-secondary'
+                    item.status === 'deviation' ? 'text-sky-400' :
+                    item.status === 'missing' ? 'text-purple-400' : 'text-text-secondary'
                   }`}>
-                    {formatNum(item.deviation)}
+                    {item.status === 'missing' ? '--' : formatNum(item.deviation)}
                   </td>
                   <td className="px-3 py-1.5">
                     <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
@@ -196,6 +216,7 @@ export default function InspectionTable({
                       item.status === 'fail' ? 'bg-critical/15 text-critical' :
                       item.status === 'warning' ? 'bg-warning/15 text-warning' :
                       item.status === 'deviation' ? 'bg-sky-400/15 text-sky-400' :
+                      item.status === 'missing' ? 'bg-purple-400/15 text-purple-400' :
                       'bg-bg-hover text-text-muted'
                     }`}>
                       {STATUS_LABELS[item.status] || item.status}
@@ -226,9 +247,14 @@ export default function InspectionTable({
           <span className="text-sky-400">
             Dev: {summary.deviation || 0}
           </span>
-          <span className="text-text-muted">
-            N/F: {summary.not_found}
+          <span className="text-purple-400">
+            Missing: {summary.missing || 0}
           </span>
+          {summary.bom_mismatches > 0 && (
+            <span className="text-orange-400">
+              BOM: {summary.bom_mismatches}
+            </span>
+          )}
           <span className="ml-auto text-text-secondary">
             Score: <span className={`font-bold ${
               summary.score >= 80 ? 'text-success' :

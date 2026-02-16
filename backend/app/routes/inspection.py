@@ -187,6 +187,10 @@ async def _run_comparison_pipeline(session_id: str, master_drawing_id: str, chec
                     master_coordinates=item.get("master_coordinates"),
                     check_coordinates=item.get("check_coordinates"),
                     notes=item.get("notes"),
+                    highlight_region=item.get("highlight_region"),
+                    check_highlight_region=item.get("check_highlight_region"),
+                    master_ocr_verified=item.get("master_ocr_verified"),
+                    check_ocr_verified=item.get("check_ocr_verified"),
                 )
                 db.add(ci)
 
@@ -623,18 +627,18 @@ async def seed_demo_session(db: AsyncSession = Depends(get_db)):
     fake_path = str(settings.upload_path / "demo_placeholder.pdf")
 
     master_balloons = [
-        {"balloon_number": 1, "value": 120.0, "unit": "mm", "coordinates": {"x": 25, "y": 40}, "tolerance_class": None, "nominal": 120.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
-        {"balloon_number": 2, "value": 45.0, "unit": "mm", "coordinates": {"x": 42, "y": 28}, "tolerance_class": "H7", "nominal": 45.0, "upper_tol": 0.025, "lower_tol": 0.0, "status": "pass"},
-        {"balloon_number": 3, "value": 25.0, "unit": "mm", "coordinates": {"x": 60, "y": 55}, "tolerance_class": "g6", "nominal": 25.0, "upper_tol": -0.007, "lower_tol": -0.020, "status": "fail"},
-        {"balloon_number": 4, "value": 80.0, "unit": "mm", "coordinates": {"x": 15, "y": 70}, "tolerance_class": None, "nominal": 80.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "pass"},
-        {"balloon_number": 5, "value": 10.0, "unit": "mm", "coordinates": {"x": 75, "y": 35}, "tolerance_class": None, "nominal": 10.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "warning"},
-        {"balloon_number": 6, "value": 62.5, "unit": "mm", "coordinates": {"x": 35, "y": 60}, "tolerance_class": None, "nominal": 62.5, "upper_tol": 0.02, "lower_tol": -0.02, "status": "pass"},
-        {"balloon_number": 7, "value": 8.0, "unit": "mm", "coordinates": {"x": 50, "y": 20}, "tolerance_class": None, "nominal": 8.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "deviation"},
-        {"balloon_number": 8, "value": 30.0, "unit": "mm", "coordinates": {"x": 85, "y": 50}, "tolerance_class": None, "nominal": 30.0, "upper_tol": None, "lower_tol": None, "status": "not_found"},
-        {"balloon_number": 9, "value": 150.0, "unit": "mm", "coordinates": {"x": 20, "y": 15}, "tolerance_class": None, "nominal": 150.0, "upper_tol": 0.2, "lower_tol": -0.2, "status": "pass"},
-        {"balloon_number": 10, "value": 5.5, "unit": "mm", "coordinates": {"x": 65, "y": 80}, "tolerance_class": None, "nominal": 5.5, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
-        {"balloon_number": 11, "value": 12.0, "unit": "mm", "coordinates": {"x": 45, "y": 75}, "tolerance_class": "H8", "nominal": 12.0, "upper_tol": 0.027, "lower_tol": 0.0, "status": "fail"},
-        {"balloon_number": 12, "value": 90.0, "unit": "mm", "coordinates": {"x": 30, "y": 45}, "tolerance_class": None, "nominal": 90.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+        {"balloon_number": 1, "value": 120.0, "unit": "mm", "coordinates": {"x": 250, "y": 320}, "tolerance_class": None, "nominal": 120.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+        {"balloon_number": 2, "value": 45.0, "unit": "mm", "coordinates": {"x": 420, "y": 224}, "tolerance_class": "H7", "nominal": 45.0, "upper_tol": 0.025, "lower_tol": 0.0, "status": "pass"},
+        {"balloon_number": 3, "value": 25.0, "unit": "mm", "coordinates": {"x": 600, "y": 440}, "tolerance_class": "g6", "nominal": 25.0, "upper_tol": -0.007, "lower_tol": -0.020, "status": "fail"},
+        {"balloon_number": 4, "value": 80.0, "unit": "mm", "coordinates": {"x": 150, "y": 560}, "tolerance_class": None, "nominal": 80.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "pass"},
+        {"balloon_number": 5, "value": 10.0, "unit": "mm", "coordinates": {"x": 750, "y": 280}, "tolerance_class": None, "nominal": 10.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "warning"},
+        {"balloon_number": 6, "value": 62.5, "unit": "mm", "coordinates": {"x": 350, "y": 480}, "tolerance_class": None, "nominal": 62.5, "upper_tol": 0.02, "lower_tol": -0.02, "status": "pass"},
+        {"balloon_number": 7, "value": 8.0, "unit": "mm", "coordinates": {"x": 500, "y": 160}, "tolerance_class": None, "nominal": 8.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "deviation"},
+        {"balloon_number": 8, "value": 30.0, "unit": "mm", "coordinates": {"x": 850, "y": 400}, "tolerance_class": None, "nominal": 30.0, "upper_tol": None, "lower_tol": None, "status": "not_found"},
+        {"balloon_number": 9, "value": 150.0, "unit": "mm", "coordinates": {"x": 200, "y": 120}, "tolerance_class": None, "nominal": 150.0, "upper_tol": 0.2, "lower_tol": -0.2, "status": "pass"},
+        {"balloon_number": 10, "value": 5.5, "unit": "mm", "coordinates": {"x": 650, "y": 640}, "tolerance_class": None, "nominal": 5.5, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+        {"balloon_number": 11, "value": 12.0, "unit": "mm", "coordinates": {"x": 450, "y": 600}, "tolerance_class": "H8", "nominal": 12.0, "upper_tol": 0.027, "lower_tol": 0.0, "status": "fail"},
+        {"balloon_number": 12, "value": 90.0, "unit": "mm", "coordinates": {"x": 300, "y": 360}, "tolerance_class": None, "nominal": 90.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
     ]
 
     check_balloons = [
@@ -669,7 +673,7 @@ async def seed_demo_session(db: AsyncSession = Depends(get_db)):
         master_drawing_id=master_id,
         check_drawing_id=check_id,
         status="complete",
-        summary={"score": 72, "pass": 7, "fail": 2, "warning": 1, "deviation": 1, "not_found": 1},
+        summary={"score": 72, "pass": 7, "fail": 2, "warning": 1, "deviation": 1, "missing": 1},
         comparison_results={
             "findings": [
                 {
@@ -737,8 +741,18 @@ async def seed_demo_session(db: AsyncSession = Depends(get_db)):
     db.add(session)
     await db.flush()
 
-    # Comparison items (tolerance table)
+    # Comparison items (tolerance table) with coordinates and highlight regions
+    # Coordinates map to the balloon positions on the drawing
+    balloon_coords = {b["balloon_number"]: b["coordinates"] for b in master_balloons}
+
+    def make_highlight(coords, side="master"):
+        if not coords:
+            return None
+        x, y = coords["x"], coords["y"]
+        return {"x": max(0, x - 80), "y": max(0, y - 80), "width": 160, "height": 160, "side": side}
+
     items = [
+        # (balloon, desc, tol_cls, nominal, upper_tol, lower_tol, actual, deviation, status)
         (1, "Overall length", None, 120.0, 0.05, -0.05, 120.02, 0.02, "pass"),
         (2, "Main bore dia", "H7", 45.0, 0.025, 0.0, 45.012, 0.012, "pass"),
         (3, "Shaft bore dia", "g6", 25.0, -0.007, -0.020, 24.985, -0.015, "fail"),
@@ -746,19 +760,34 @@ async def seed_demo_session(db: AsyncSession = Depends(get_db)):
         (5, "Chamfer depth", None, 10.0, 0.05, -0.05, 10.04, 0.04, "warning"),
         (6, "Hole center dist", None, 62.5, 0.02, -0.02, 62.51, 0.01, "pass"),
         (7, "Step height", None, 8.0, 0.1, -0.1, 8.08, 0.08, "deviation"),
-        (8, "Slot width", None, 30.0, None, None, None, None, "not_found"),
+        (8, "Slot width", None, 30.0, None, None, None, None, "missing"),
         (9, "Flange length", None, 150.0, 0.2, -0.2, 150.1, 0.1, "pass"),
         (10, "Fillet radius", None, 5.5, 0.05, -0.05, 5.48, -0.02, "pass"),
         (11, "Bearing bore", "H8", 12.0, 0.027, 0.0, 12.032, 0.032, "fail"),
         (12, "Mounting face", None, 90.0, 0.05, -0.05, 89.98, -0.02, "pass"),
     ]
     for bn, desc, tol_cls, nom, ut, lt, actual, dev, st in items:
+        coords = balloon_coords.get(bn)
+        # Build highlight regions for non-pass items
+        hl = None
+        check_hl = None
+        if st in ("fail", "warning", "deviation"):
+            hl = make_highlight(coords, "master")
+            check_hl = make_highlight(coords, "check")
+        elif st == "missing":
+            hl = make_highlight(coords, "master")
+
         db.add(ComparisonItem(
             session_id=session.id, balloon_number=bn,
             feature_description=desc, master_nominal=nom,
             master_upper_tol=ut, master_lower_tol=lt,
             master_tolerance_class=tol_cls,
             check_actual=actual, deviation=dev, status=st,
+            master_coordinates=coords,
+            check_coordinates=coords if st != "missing" else None,
+            highlight_region=hl,
+            check_highlight_region=check_hl,
+            notes=f"Dimension {nom}mm ({desc}) missing from check drawing" if st == "missing" else None,
         ))
 
     await db.commit()
