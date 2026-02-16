@@ -608,3 +608,159 @@ async def review_session(
     )
 
     return review_result
+
+
+# ── Demo seed ──
+
+
+@router.post("/demo/seed", response_model=InspectionSessionOut)
+async def seed_demo_session(db: AsyncSession = Depends(get_db)):
+    """Create a fully populated demo session with fake data."""
+
+    # Fake drawing records (no real files)
+    master_id = uuid.uuid4()
+    check_id = uuid.uuid4()
+    fake_path = str(settings.upload_path / "demo_placeholder.pdf")
+
+    master_balloons = [
+        {"balloon_number": 1, "value": 120.0, "unit": "mm", "coordinates": {"x": 25, "y": 40}, "tolerance_class": None, "nominal": 120.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+        {"balloon_number": 2, "value": 45.0, "unit": "mm", "coordinates": {"x": 42, "y": 28}, "tolerance_class": "H7", "nominal": 45.0, "upper_tol": 0.025, "lower_tol": 0.0, "status": "pass"},
+        {"balloon_number": 3, "value": 25.0, "unit": "mm", "coordinates": {"x": 60, "y": 55}, "tolerance_class": "g6", "nominal": 25.0, "upper_tol": -0.007, "lower_tol": -0.020, "status": "fail"},
+        {"balloon_number": 4, "value": 80.0, "unit": "mm", "coordinates": {"x": 15, "y": 70}, "tolerance_class": None, "nominal": 80.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "pass"},
+        {"balloon_number": 5, "value": 10.0, "unit": "mm", "coordinates": {"x": 75, "y": 35}, "tolerance_class": None, "nominal": 10.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "warning"},
+        {"balloon_number": 6, "value": 62.5, "unit": "mm", "coordinates": {"x": 35, "y": 60}, "tolerance_class": None, "nominal": 62.5, "upper_tol": 0.02, "lower_tol": -0.02, "status": "pass"},
+        {"balloon_number": 7, "value": 8.0, "unit": "mm", "coordinates": {"x": 50, "y": 20}, "tolerance_class": None, "nominal": 8.0, "upper_tol": 0.1, "lower_tol": -0.1, "status": "deviation"},
+        {"balloon_number": 8, "value": 30.0, "unit": "mm", "coordinates": {"x": 85, "y": 50}, "tolerance_class": None, "nominal": 30.0, "upper_tol": None, "lower_tol": None, "status": "not_found"},
+        {"balloon_number": 9, "value": 150.0, "unit": "mm", "coordinates": {"x": 20, "y": 15}, "tolerance_class": None, "nominal": 150.0, "upper_tol": 0.2, "lower_tol": -0.2, "status": "pass"},
+        {"balloon_number": 10, "value": 5.5, "unit": "mm", "coordinates": {"x": 65, "y": 80}, "tolerance_class": None, "nominal": 5.5, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+        {"balloon_number": 11, "value": 12.0, "unit": "mm", "coordinates": {"x": 45, "y": 75}, "tolerance_class": "H8", "nominal": 12.0, "upper_tol": 0.027, "lower_tol": 0.0, "status": "fail"},
+        {"balloon_number": 12, "value": 90.0, "unit": "mm", "coordinates": {"x": 30, "y": 45}, "tolerance_class": None, "nominal": 90.0, "upper_tol": 0.05, "lower_tol": -0.05, "status": "pass"},
+    ]
+
+    check_balloons = [
+        {**b, "status": b["status"]} for b in master_balloons
+    ]
+
+    master_drawing = Drawing(
+        id=master_id, filename="GearboxHousing_Rev3_Master.pdf",
+        file_path=fake_path, status="ingested",
+        balloon_data=master_balloons,
+        machine_state={
+            "dimensions": [{"value": b["value"], "unit": "mm", "coordinates": b["coordinates"], "tolerance_class": b.get("tolerance_class")} for b in master_balloons],
+            "title_block": {"part_name": "Gearbox Housing", "part_number": "GH-2024-003", "revision": "C", "material": "AL 6061-T6", "drawn_by": "R. Mehta", "date": "2024-11-08"},
+            "part_list": [
+                {"item_number": "1", "description": "Gearbox Housing", "material": "AL 6061-T6", "quantity": 1},
+                {"item_number": "2", "description": "Bearing Cap", "material": "Steel 4140", "quantity": 2},
+                {"item_number": "3", "description": "Dowel Pin", "material": "Steel 1045", "quantity": 4},
+            ],
+        },
+    )
+    check_drawing = Drawing(
+        id=check_id, filename="GearboxHousing_SupplierA_Check.pdf",
+        file_path=fake_path, status="ingested",
+        balloon_data=check_balloons,
+    )
+    db.add(master_drawing)
+    db.add(check_drawing)
+    await db.flush()
+
+    # Session
+    session = InspectionSession(
+        master_drawing_id=master_id,
+        check_drawing_id=check_id,
+        status="complete",
+        summary={"score": 72, "pass": 7, "fail": 2, "warning": 1, "deviation": 1, "not_found": 1},
+        comparison_results={
+            "findings": [
+                {
+                    "finding_type": "MISMATCH", "severity": "critical", "category": "consensus",
+                    "description": "Bore diameter at balloon #3 (grid C4) reads 24.985mm on check vs 25.000mm nominal on master. Outside g6 tolerance band (-0.007/-0.020). Shaft will not achieve required interference fit.",
+                    "nearest_balloon": 3, "grid_ref": "C4", "drawing_role": "check",
+                    "recommendation": "Verify bore diameter measurement. If confirmed, reject part — interference fit requires 25.000 g6.",
+                    "affected_features": ["25.0 g6 bore"],
+                    "evidence": {"expected": "25.000 g6 (-0.007/-0.020)", "found": "24.985 (deviation: -0.015 beyond lower limit)", "standard_reference": "ISO 286-1"},
+                },
+                {
+                    "finding_type": "TOLERANCE_MISSING", "severity": "critical", "category": "omission",
+                    "description": "Bearing bore at balloon #11 (grid B6) shows 12.0mm but check drawing is missing H8 tolerance class. Bearing seat requires controlled fit.",
+                    "nearest_balloon": 11, "grid_ref": "B6", "drawing_role": "check",
+                    "recommendation": "Add H8 tolerance callout (12.000 +0.027/+0.000) to check drawing.",
+                    "affected_features": ["12.0 H8 bearing bore"],
+                    "evidence": {"expected": "12.000 H8 (+0.027/+0.000)", "found": "12.0 (no tolerance)", "standard_reference": "ASME Y14.5-2018 §5.4"},
+                },
+                {
+                    "finding_type": "OMISSION", "severity": "warning", "category": "omission",
+                    "description": "Chamfer dimension at balloon #5 (grid D2) reads 10.04mm on check vs 10.00mm nominal. Within tolerance but near upper limit (+0.04 of +0.05 allowed).",
+                    "nearest_balloon": 5, "grid_ref": "D2", "drawing_role": "check",
+                    "recommendation": "Accept with note — monitor this dimension in subsequent parts for upward drift.",
+                    "affected_features": ["10.0 chamfer"],
+                    "evidence": {"expected": "10.000 +0.05/-0.05", "found": "10.040 (80% of tolerance consumed)"},
+                },
+                {
+                    "finding_type": "OMISSION", "severity": "warning", "category": "omission",
+                    "description": "Slot width at balloon #8 (grid E3) not found on check drawing. 30.0mm dimension present on master with no tolerance specified.",
+                    "nearest_balloon": 8, "grid_ref": "E3", "drawing_role": "check",
+                    "recommendation": "Measure slot width on physical part and add to check drawing.",
+                    "affected_features": ["30.0 slot width"],
+                    "evidence": {"expected": "30.0mm", "found": "missing"},
+                },
+                {
+                    "finding_type": "STACK_UP_ERROR", "severity": "info", "category": "envelope",
+                    "description": "Step height at balloon #7 (grid C2) measures 8.08mm vs 8.00mm nominal. Deviation of +0.08mm within +/-0.1 tolerance but check drawing shows different view angle than master.",
+                    "nearest_balloon": 7, "grid_ref": "C2", "drawing_role": "check",
+                    "recommendation": "Confirm measurement method matches master drawing datum scheme.",
+                    "affected_features": ["8.0 step height"],
+                    "evidence": {"expected": "8.000 +0.1/-0.1", "found": "8.080 (within tolerance)"},
+                },
+            ],
+            "agent_log": [
+                {"agent": "ingestor", "action": "extract", "dims": 12},
+                {"agent": "comparator", "action": "match", "matched": 11, "unmatched": 1},
+                {"agent": "sherlock", "action": "cross_verification", "findings_count": 5, "checks": ["consensus", "envelope", "omission", "decimal_consistency"]},
+            ],
+        },
+        review_results={
+            "missing_dimensions": [
+                {"value": "30.0", "type": "linear", "location": "Slot feature, right side of housing", "description": "30.0mm slot width is fully dimensioned on master but entirely absent from check drawing"},
+                {"value": "R3", "type": "radius", "location": "Fillet at bearing shoulder", "description": "R3 fillet radius callout on master not present on check"},
+            ],
+            "missing_tolerances": [
+                {"value": "H8", "type": "tolerance", "location": "12.0mm bearing bore", "description": "H8 tolerance class on 12.0mm bearing bore is on master but missing from check"},
+                {"value": "+/-0.02", "type": "tolerance", "location": "62.5mm center distance", "description": "Bilateral tolerance on 62.5mm hole center distance missing from check"},
+            ],
+            "modified_values": [
+                {"master_value": "25.0 g6", "check_value": "25.0", "location": "Main shaft bore", "description": "g6 tolerance class dropped from check — interference fit no longer specified"},
+            ],
+            "summary": "2 dimensions missing, 2 tolerances missing, 1 value modified",
+        },
+    )
+    db.add(session)
+    await db.flush()
+
+    # Comparison items (tolerance table)
+    items = [
+        (1, "Overall length", None, 120.0, 0.05, -0.05, 120.02, 0.02, "pass"),
+        (2, "Main bore dia", "H7", 45.0, 0.025, 0.0, 45.012, 0.012, "pass"),
+        (3, "Shaft bore dia", "g6", 25.0, -0.007, -0.020, 24.985, -0.015, "fail"),
+        (4, "Housing width", None, 80.0, 0.1, -0.1, 80.05, 0.05, "pass"),
+        (5, "Chamfer depth", None, 10.0, 0.05, -0.05, 10.04, 0.04, "warning"),
+        (6, "Hole center dist", None, 62.5, 0.02, -0.02, 62.51, 0.01, "pass"),
+        (7, "Step height", None, 8.0, 0.1, -0.1, 8.08, 0.08, "deviation"),
+        (8, "Slot width", None, 30.0, None, None, None, None, "not_found"),
+        (9, "Flange length", None, 150.0, 0.2, -0.2, 150.1, 0.1, "pass"),
+        (10, "Fillet radius", None, 5.5, 0.05, -0.05, 5.48, -0.02, "pass"),
+        (11, "Bearing bore", "H8", 12.0, 0.027, 0.0, 12.032, 0.032, "fail"),
+        (12, "Mounting face", None, 90.0, 0.05, -0.05, 89.98, -0.02, "pass"),
+    ]
+    for bn, desc, tol_cls, nom, ut, lt, actual, dev, st in items:
+        db.add(ComparisonItem(
+            session_id=session.id, balloon_number=bn,
+            feature_description=desc, master_nominal=nom,
+            master_upper_tol=ut, master_lower_tol=lt,
+            master_tolerance_class=tol_cls,
+            check_actual=actual, deviation=dev, status=st,
+        ))
+
+    await db.commit()
+    await db.refresh(session)
+    return session
