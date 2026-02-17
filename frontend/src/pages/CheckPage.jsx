@@ -1,18 +1,10 @@
 import { useState, useRef } from 'react'
-import { Upload, Loader2, FileText, X, Check, Circle } from 'lucide-react'
+import { Upload, Loader2, FileText, X } from 'lucide-react'
 import { reviewDrawings } from '../services/api'
 import ReviewReport from '../components/review/ReviewReport'
 import DrawingViewer from '../components/review/DrawingViewer'
 
 const ACCEPTED = '.pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp'
-
-const PIPELINE_STEPS = [
-  { step: 1, label: 'Converting PDFs to images' },
-  { step: 2, label: 'Round 1 — Claude analyzing images' },
-  { step: 3, label: 'Round 2 — Gemini auditing findings' },
-  { step: 4, label: 'Round 3 — Claude merging final report' },
-  { step: 5, label: 'Complete' },
-]
 
 function DropZone({ label, file, onFile, onClear, disabled }) {
   const inputRef = useRef()
@@ -74,57 +66,10 @@ function DropZone({ label, file, onFile, onClear, disabled }) {
   )
 }
 
-function PipelineTracker({ currentStep }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-6">
-      <div className="flex flex-col gap-3 w-full max-w-md">
-        {PIPELINE_STEPS.map(({ step, label }) => {
-          const isDone = currentStep > step
-          const isActive = currentStep === step
-          const isPending = currentStep < step
-
-          return (
-            <div key={step} className="flex items-center gap-3">
-              {/* Icon */}
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all ${
-                isDone
-                  ? 'bg-success/20'
-                  : isActive
-                    ? 'bg-accent/20'
-                    : 'bg-bg-hover'
-              }`}>
-                {isDone ? (
-                  <Check size={14} className="text-success" />
-                ) : isActive ? (
-                  <Loader2 size={14} className="text-accent animate-spin" />
-                ) : (
-                  <Circle size={10} className="text-text-muted/30" />
-                )}
-              </div>
-
-              {/* Label */}
-              <span className={`text-sm transition-all ${
-                isDone
-                  ? 'text-success/70'
-                  : isActive
-                    ? 'text-text-primary font-medium'
-                    : 'text-text-muted/40'
-              }`}>
-                {label}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export default function CheckPage() {
   const [masterFile, setMasterFile] = useState(null)
   const [checkFile, setCheckFile] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [pipelineStep, setPipelineStep] = useState(0)
   const [error, setError] = useState(null)
   const [results, setResults] = useState(null)
 
@@ -138,18 +83,14 @@ export default function CheckPage() {
     setLoading(true)
     setError(null)
     setResults(null)
-    setPipelineStep(0)
 
     try {
-      const data = await reviewDrawings(masterFile, checkFile, (event) => {
-        if (event.step > 0) setPipelineStep(event.step)
-      })
+      const data = await reviewDrawings(masterFile, checkFile)
       setResults(data)
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Review failed')
     } finally {
       setLoading(false)
-      setPipelineStep(0)
     }
   }
 
@@ -170,7 +111,7 @@ export default function CheckPage() {
       </div>
 
       {/* Upload zone — collapse when results are showing */}
-      {!results && !loading && (
+      {!results && (
         <>
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
             <DropZone
@@ -199,7 +140,14 @@ export default function CheckPage() {
                   : 'bg-bg-hover text-text-muted cursor-not-allowed'
               }`}
             >
-              Review
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                'Review'
+              )}
             </button>
           </div>
         </>
@@ -212,8 +160,14 @@ export default function CheckPage() {
         </div>
       )}
 
-      {/* Pipeline progress */}
-      {loading && <PipelineTracker currentStep={pipelineStep} />}
+      {/* Loading state */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-16 gap-3">
+          <Loader2 size={32} className="text-accent animate-spin" />
+          <p className="text-sm text-text-muted">Running adversarial review (Claude + Gemini)...</p>
+          <p className="text-xs text-text-muted">3 rounds — this takes about 30-60 seconds</p>
+        </div>
+      )}
 
       {/* Results: Side-by-side drawings + report */}
       {results && !loading && (

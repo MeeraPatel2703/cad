@@ -54,25 +54,33 @@ INSPECTOR_RULES = """\
 You are a mechanical drawing checker. You will receive two engineering \
 drawings: a MASTER (the reference) and a CHECK (the one being verified).
 
-YOUR ONLY JOB: Find dimensions and tolerances that appear on the MASTER \
-but are MISSING from the CHECK.
+YOUR JOB: Find callouts that are MISSING from the check, or where the \
+VALUE HAS CHANGED between master and check.
 
-Step 1 — READ THE MASTER. List every single numerical callout you can see: \
-dimensions (linear, diameter, radius, angular), tolerances (±values, \
-fit classes like H7/g6), GD&T frames, surface finish symbols, thread \
-callouts, chamfer/radius notes. Miss nothing.
+PRIORITY CHECKS (do these FIRST):
+- ANGLES: Compare every angle on the master (°, deg) to the check. \
+  Read the exact numeric value carefully — 30° vs 45° vs 52° etc. \
+  Angles are the most commonly modified values between revisions.
+- TOLERANCES: Compare every tolerance — ±values, fit classes (H7/g6), \
+  unilateral tolerances (+2°/-0° vs ±2°). Even small changes matter.
+- DIMENSIONS: Compare every linear, diameter, and radius dimension.
 
-Step 2 — FOR EACH ONE, look at the CHECK drawing and determine: \
-is this exact callout present on the check? Same value, same location?
+Step 1 — READ THE MASTER carefully. For every callout, write down the \
+exact numeric value you see. Pay special attention to angles and their \
+tolerances.
 
-Step 3 — Report ONLY the ones that are MISSING or WRONG on the check.
+Step 2 — READ THE CHECK carefully. For every callout on the master, find \
+the corresponding one on the check. Compare the EXACT values. \
+A 30° angle on the master that shows 45° on the check is a MODIFIED VALUE. \
+A ±2° tolerance on the master that shows +2°/-0° on the check is MODIFIED.
 
-If the check drawing is clearly a different revision or simplified version, \
-there WILL be missing items. Do not say "all clear" unless you are 100% \
-certain every single callout on the master also appears on the check.
+Step 3 — Report:
+  - MISSING: callouts on master that don't appear anywhere on check
+  - MODIFIED: callouts where the value or tolerance CHANGED between drawings
 
-When in doubt, report it as missing. False positives are acceptable. \
-False negatives are not."""
+Do NOT report items that are identical on both drawings. \
+Do NOT hallucinate values — only report what you can clearly read. \
+If you cannot read a value clearly, skip it."""
 
 
 def _load_image_as_base64(file_path: str) -> tuple[str, str]:
@@ -164,15 +172,18 @@ async def _claude_initial_review(
                     {
                         "type": "text",
                         "text": (
-                            "Step 1: Read the MASTER drawing above. List every "
-                            "dimension, tolerance, GD&T callout, surface finish, "
-                            "and note you can see on it.\n\n"
-                            "Step 2: For EACH one, look at the CHECK drawing. "
-                            "Is it there? Same value?\n\n"
-                            "Step 3: Report everything from the master that is "
-                            "MISSING or DIFFERENT on the check.\n\n"
-                            "Do NOT say all clear unless you checked every single "
-                            "number on the master. When in doubt, report it.\n\n"
+                            "PRIORITY: Start by comparing ALL ANGLES between the "
+                            "two drawings. Read each angle value on the master, "
+                            "then find it on the check and compare.\n\n"
+                            "Step 1: Read the MASTER. List every angle (°), "
+                            "dimension, tolerance, and callout with its exact value.\n\n"
+                            "Step 2: For EACH one, find it on the CHECK. "
+                            "Compare exact values — is it the same number? "
+                            "Is the tolerance the same?\n\n"
+                            "Step 3: Report MISSING items and MODIFIED values "
+                            "(where the number changed between drawings).\n\n"
+                            "Do NOT report items that match. "
+                            "Do NOT guess values you can't clearly read.\n\n"
                             "Respond with JSON only:\n" + RESULT_SCHEMA
                         ),
                     },
@@ -292,47 +303,35 @@ async def _claude_final_merge(
 
 # ── Main entry point ──
 
-async def run_review(master_path: str, check_path: str, on_progress=None) -> dict:
+async def run_review(master_path: str, check_path: str) -> dict:
     """Run adversarial multi-model review.
 
     Round 1: Claude initial review
     Round 2: Gemini audits Claude's findings
     Round 3: Claude merges both reports into final result
-
-    on_progress(step, total, label) is called at each pipeline stage.
     """
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not configured")
     if not settings.GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY is not configured")
 
-    async def _progress(step, label):
-        if on_progress:
-            await on_progress(step, 5, label)
-
-    # Step 1: Convert PDFs to images
-    await _progress(1, "Converting PDFs to high-resolution images")
     master_b64, master_media = _load_image_as_base64(master_path)
     check_b64, check_media = _load_image_as_base64(check_path)
-    logger.info("Images ready: master=%s, check=%s", master_media, check_media)
 
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    # Step 2: Claude initial review on images
-    await _progress(2, "Round 1 — Claude analyzing both images")
+    # Round 1: Claude
     claude_result, claude_raw = await _claude_initial_review(
         client, master_b64, master_media, check_b64, check_media,
     )
 
-    # Step 3: Gemini audits Claude's findings on images
-    await _progress(3, "Round 2 — Gemini auditing Claude's findings")
+    # Round 2: Gemini audits
     gemini_result, gemini_raw = await _gemini_audit(
         master_b64, master_media, check_b64, check_media,
         claude_raw,
     )
 
-    # Step 4: Claude final merge on images
-    await _progress(4, "Round 3 — Claude merging final report")
+    # Round 3: Claude final merge
     final_result, final_raw = await _claude_final_merge(
         client, master_b64, master_media, check_b64, check_media,
         claude_raw, gemini_raw,
@@ -359,5 +358,4 @@ async def run_review(master_path: str, check_path: str, on_progress=None) -> dic
             f"{md} dimensions missing, {mt} tolerances missing, {mv} values modified"
         )
 
-    await _progress(5, "Complete")
     return final_result
