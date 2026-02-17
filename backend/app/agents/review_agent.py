@@ -292,35 +292,47 @@ async def _claude_final_merge(
 
 # ── Main entry point ──
 
-async def run_review(master_path: str, check_path: str) -> dict:
+async def run_review(master_path: str, check_path: str, on_progress=None) -> dict:
     """Run adversarial multi-model review.
 
     Round 1: Claude initial review
     Round 2: Gemini audits Claude's findings
     Round 3: Claude merges both reports into final result
+
+    on_progress(step, total, label) is called at each pipeline stage.
     """
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not configured")
     if not settings.GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY is not configured")
 
+    async def _progress(step, label):
+        if on_progress:
+            await on_progress(step, 5, label)
+
+    # Step 1: Convert PDFs to images
+    await _progress(1, "Converting PDFs to high-resolution images")
     master_b64, master_media = _load_image_as_base64(master_path)
     check_b64, check_media = _load_image_as_base64(check_path)
+    logger.info("Images ready: master=%s, check=%s", master_media, check_media)
 
     client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    # Round 1: Claude
+    # Step 2: Claude initial review on images
+    await _progress(2, "Round 1 — Claude analyzing both images")
     claude_result, claude_raw = await _claude_initial_review(
         client, master_b64, master_media, check_b64, check_media,
     )
 
-    # Round 2: Gemini audits
+    # Step 3: Gemini audits Claude's findings on images
+    await _progress(3, "Round 2 — Gemini auditing Claude's findings")
     gemini_result, gemini_raw = await _gemini_audit(
         master_b64, master_media, check_b64, check_media,
         claude_raw,
     )
 
-    # Round 3: Claude final merge
+    # Step 4: Claude final merge on images
+    await _progress(4, "Round 3 — Claude merging final report")
     final_result, final_raw = await _claude_final_merge(
         client, master_b64, master_media, check_b64, check_media,
         claude_raw, gemini_raw,
@@ -347,4 +359,5 @@ async def run_review(master_path: str, check_path: str) -> dict:
             f"{md} dimensions missing, {mt} tolerances missing, {mv} values modified"
         )
 
+    await _progress(5, "Complete")
     return final_result

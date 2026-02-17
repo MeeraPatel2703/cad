@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json as json_mod
 import logging
 import traceback
 import uuid
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Tuple
 
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -511,9 +512,10 @@ async def review_drawings(
     master: UploadFile = File(...),
     check: UploadFile = File(...),
 ):
-    """Upload master + check drawings and get a Claude-powered review report.
+    """Upload master + check drawings and stream pipeline progress via SSE.
 
-    Stateless — no session or DB storage needed.
+    Streams events like: {"step":1,"total":5,"label":"Converting PDFs..."}
+    Final event includes: {"step":5,"total":5,"label":"Complete","result":{...}}
     """
     master_content = await master.read()
     check_content = await check.read()
@@ -521,15 +523,34 @@ async def review_drawings(
     master_id, master_path = _save_file(master_content, master.filename)
     check_id, check_path = _save_file(check_content, check.filename)
 
-    try:
-        result = await run_review(str(master_path), str(check_path))
-    except Exception as e:
-        logger.error(f"Review failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    async def generate():
+        queue = asyncio.Queue()
 
-    result["master_id"] = str(master_id)
-    result["check_id"] = str(check_id)
-    return result
+        async def on_progress(step, total, label):
+            await queue.put({"step": step, "total": total, "label": label})
+
+        async def run():
+            try:
+                result = await run_review(
+                    str(master_path), str(check_path), on_progress=on_progress,
+                )
+                result["master_id"] = str(master_id)
+                result["check_id"] = str(check_id)
+                await queue.put({"step": 5, "total": 5, "label": "Complete", "result": result})
+            except Exception as e:
+                logger.error(f"Review failed: {e}")
+                await queue.put({"step": -1, "total": 5, "label": f"Error: {e}"})
+            await queue.put(None)  # sentinel
+
+        asyncio.create_task(run())
+
+        while True:
+            msg = await queue.get()
+            if msg is None:
+                break
+            yield f"data: {json_mod.dumps(msg)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.get("/review/image/{file_id}")

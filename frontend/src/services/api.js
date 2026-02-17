@@ -103,12 +103,44 @@ export async function deleteInspectionSession(sessionId) {
 
 // ── Review APIs ──
 
-export async function reviewDrawings(masterFile, checkFile) {
+export async function reviewDrawings(masterFile, checkFile, onProgress) {
   const form = new FormData()
   form.append('master', masterFile)
   form.append('check', checkFile)
-  const { data } = await api.post('/review', form)
-  return data
+
+  const response = await fetch('/api/review', { method: 'POST', body: form })
+
+  if (!response.ok) {
+    throw new Error(`Review failed: ${response.status}`)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() // keep incomplete line in buffer
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const event = JSON.parse(line.slice(6))
+        if (event.result) {
+          result = event.result
+        }
+        if (onProgress) onProgress(event)
+      } catch {}
+    }
+  }
+
+  if (!result) throw new Error('No result received from review')
+  return result
 }
 
 export async function reviewSession(sessionId) {
