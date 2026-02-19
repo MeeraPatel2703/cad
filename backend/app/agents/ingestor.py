@@ -22,16 +22,130 @@ import numpy as np
 from PIL import Image
 from PyPDF2 import PdfReader
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from google.api_core.exceptions import ResourceExhausted
 
 from app.config import settings
 from app.agents.state import AuditState, MachineState
+from app.agents.ocr_engine import extract_dimensions_hybrid, ensemble_validate
 
 logger = logging.getLogger(__name__)
 
 # Retry configuration for rate limits
 MAX_RETRIES = 5
 INITIAL_BACKOFF = 30  # seconds
+
+# Gemini output token limit — large drawings can produce huge JSON
+MAX_OUTPUT_TOKENS = 65536
+
+
+# Technical drawings contain legitimate engineering terms (e.g. "pressure vessel",
+# "explosive forming", "impact testing") that can trigger false-positive safety
+# blocks.  BLOCK_NONE disables all content filtering for this professional context.
+SAFETY_SETTINGS = {
+    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+}
+
+# Simplified fallback prompt when main prompt triggers safety filters
+SIMPLE_EXTRACTION_PROMPT = """Extract dimensions from this technical drawing.
+
+Return JSON with:
+{
+  "dimensions": [
+    {"value": <number>, "unit": "mm", "feature_type": "diameter", "coordinates": {"x": <0-100>, "y": <0-100>}}
+  ],
+  "part_list": [],
+  "zones": [],
+  "gdt_callouts": []
+}
+
+Extract as many dimensions as possible. Coordinates are percentages (0-100) of image size.
+"""
+
+# Gemini finish_reason codes
+_FINISH_STOP = 1
+_FINISH_MAX_TOKENS = 2
+_FINISH_SAFETY = 3
+_FINISH_RECITATION = 4
+
+
+def _check_gemini_response(response) -> tuple[str, int]:
+    """Validate a Gemini response and extract text.
+
+    Returns (text, finish_reason).
+    Raises RuntimeError for unrecoverable errors (SAFETY, RECITATION, no candidates).
+    Logs warnings for truncated (MAX_TOKENS) responses and salvages partial content.
+    """
+    if not response.candidates:
+        logger.error("Gemini returned no candidates — response: %s", response)
+        raise RuntimeError(
+            "Gemini returned no candidates — possible safety filter or API issue"
+        )
+
+    candidate = response.candidates[0]
+    finish_reason = getattr(candidate, "finish_reason", 0)
+    safety_ratings = getattr(candidate, "safety_ratings", None)
+
+    logger.info("Gemini finish_reason: %s, safety_ratings: %s", finish_reason, safety_ratings)
+
+    if finish_reason == _FINISH_SAFETY:
+        logger.error("Gemini blocked response due to safety filters: %s", safety_ratings)
+        raise RuntimeError(
+            f"Gemini safety filters blocked the response. "
+            f"Safety ratings: {safety_ratings}"
+        )
+
+    if finish_reason == _FINISH_RECITATION:
+        logger.error("Gemini blocked response due to recitation filters")
+        raise RuntimeError("Gemini detected potential copyright content recitation")
+
+    if finish_reason == _FINISH_MAX_TOKENS:
+        logger.warning("Gemini response truncated due to max_output_tokens")
+
+    # Try normal .text accessor first
+    try:
+        text = response.text
+        if text:
+            return text, finish_reason
+    except Exception:
+        pass
+
+    # Fallback: dig into candidate parts directly (for truncated responses)
+    try:
+        if candidate.content and candidate.content.parts:
+            parts_text = []
+            for part in candidate.content.parts:
+                if hasattr(part, "text") and part.text:
+                    parts_text.append(part.text)
+            if parts_text:
+                joined = "".join(parts_text)
+                logger.warning(
+                    "Salvaged %d chars of partial content (finish_reason=%s)",
+                    len(joined), finish_reason,
+                )
+                return joined, finish_reason
+    except Exception as inner:
+        logger.error("Could not extract text from Gemini candidate: %s", inner)
+
+    # No content at all
+    logger.error("Gemini candidate has no content parts (finish_reason=%s)", finish_reason)
+    raise RuntimeError(
+        f"Gemini returned no content (finish_reason={finish_reason}). "
+        "Check image quality and prompt."
+    )
+
+
+def _safe_response_text(response) -> str:
+    """Convenience wrapper — returns text or empty string, never raises."""
+    try:
+        text, _ = _check_gemini_response(response)
+        return text
+    except Exception as exc:
+        logger.error("_safe_response_text fallback: %s", exc)
+        return ""
 
 # Grid configuration for spatial mapping
 GRID_ROWS = 6  # A-F zones (common in engineering drawings)
@@ -145,18 +259,89 @@ COMMON EXTRACTION ERRORS TO AVOID:
    - RIGHT: Read each digit carefully, especially after decimal points
 
    CRITICAL DIGIT PAIRS — these are the most commonly confused at small font sizes:
+   - 3 vs 5: "3" has TWO CURVED bumps both open on the LEFT; "5" has a
+     FLAT horizontal top bar and ONE curve at bottom. Key: "3" is curved at
+     top AND bottom; "5" has a FLAT top. 302 is NOT 50 — do not drop digits.
    - 3 vs 4: "3" has TWO CURVED bumps open on the left; "4" has an ANGULAR junction open at bottom
    - 3 vs 8: "3" is open on the left; "8" is CLOSED on both sides
    - 6 vs 8: "6" has ONE enclosed loop at bottom; "8" has TWO enclosed loops
    - 1 vs 7: "1" is a straight vertical stroke; "7" has a HORIZONTAL bar at top
+   - 4 vs 5: "4" has ALL STRAIGHT angular strokes with an OPEN top; "5"
+     has a FLAT top bar then CURVES into a rounded bottom. Key test: are
+     ALL strokes STRAIGHT with no curves? → 4. Is there a CURVED bottom? → 5.
+     14 ≠ 15, 40 ≠ 50, 24 ≠ 25, 44 ≠ 45, 400 ≠ 500, 1400 ≠ 1500.
+   - 5 vs 4: same pair, opposite direction. Does the bottom CURVE (→ 5)
+     or stay STRAIGHT (→ 4)? 55 ≠ 54, 25 ≠ 24.
    - 5 vs 6: "5" has a flat top and open bottom curve; "6" has a curved top flowing into closed bottom
    - 4 vs 9: "4" has angular strokes meeting at a junction; "9" has a closed loop at top
+   - 8 vs 4: "8" has TWO enclosed loops; "4" has ANGULAR open strokes with
+     no loops. If you see enclosed loops → 8. "18" is NOT "14", "80" is NOT "40".
+   - 0 vs 9: "0" is a CLOSED oval with NO tail; "9" has a closed loop at
+     the TOP and a DESCENDING tail at the bottom. "0" is symmetric
+     top-to-bottom; "9" has a tail dropping below. If NO tail → 0.
+     10 ≠ 19, 100 ≠ 190, 200 ≠ 290, 50 ≠ 59, 30 ≠ 39, 90 ≠ 00.
+   - 9 vs 3: "9" has a CLOSED loop at the top with a single DESCENDING
+     tail below; "3" has TWO open curved bumps on the LEFT with NO closed
+     loop. Key: closed loop at top + tail → 9; two open bumps → 3.
+     9 ≠ 3, 19 ≠ 13, 90 ≠ 30, 900 ≠ 300, 49 ≠ 43.
+   - 9 vs 5: "9" has a CLOSED loop at the top with a DESCENDING tail;
+     "5" has a FLAT horizontal top bar (no loop) and ONE open curve at
+     the bottom. Key: closed loop at top → 9; flat top bar, no enclosure → 5.
+     9 ≠ 5, 19 ≠ 15, 90 ≠ 50, 900 ≠ 500, 49 ≠ 45, 29 ≠ 25, 39 ≠ 35.
+   - 2 vs 5: "2" has a CURVED top loop flowing into a FLAT horizontal
+     BOTTOM bar; "5" has a FLAT horizontal TOP bar flowing into a CURVED
+     bottom. They are mirrored: curve at TOP → 2; curve at BOTTOM → 5.
+     2 ≠ 5, 12 ≠ 15, 20 ≠ 50, 200 ≠ 500, 25 ≠ 52, 32 ≠ 35, 42 ≠ 45.
+   - 0 vs 5: "0" is a fully CLOSED oval with NO flat edges; "5" has a
+     FLAT horizontal top bar and an OPEN curve at bottom left. Key: fully
+     enclosed, no flat bar → 0; flat top bar + open curve → 5.
+     0 ≠ 5, 10 ≠ 15, 20 ≠ 25, 30 ≠ 35, 40 ≠ 45, 904 ≠ 954.
+   - 4 vs 7: "4" has THREE strokes forming a closed angular junction;
+     "7" has only TWO strokes — a horizontal top bar and a diagonal.
+     Key: three strokes with crossbar → 4; two strokes (bar + diagonal) → 7.
+     4 ≠ 7, 14 ≠ 17, 40 ≠ 70, 400 ≠ 700, 904 ≠ 907, 104 ≠ 107.
+   - ( vs 1: "(" is a CURVED arc bowing to the RIGHT with no straight
+     segment; "1" is a STRAIGHT vertical stroke. Parentheses come in PAIRS
+     — if a matching ")" is nearby, it is "(", not "1". "(2x)" ≠ "12x)".
+   - 4 vs L: open-top "4" looks like "L" in technical fonts. If inside a
+     dimension (e.g. "14.5", "R4"), it is the digit 4. If it is a material
+     or spec suffix (e.g. "316L" stainless steel), it is the letter L.
+
+   CRITICAL SYMBOL PAIRS — do not confuse these operators/symbols:
+   - + (plus) vs - (minus/dash): "+" has a VERTICAL stroke crossing a
+     horizontal stroke; "-" is a single horizontal stroke. At small sizes
+     the vertical bar of "+" can disappear, making it look like "-".
+     "3+8 THK" is NOT "3-4 THK". Look carefully for the vertical bar.
+   - × (multiply) vs + (plus): "×" is rotated 45°; "+" is axis-aligned.
+   - ± vs +: "±" has a horizontal bar below the plus sign.
 
    DISAMBIGUATION STRATEGY for small text:
    - Count enclosed loops: 0 has 1 loop, 8 has 2 loops, 4 has 0 loops
    - Check if top is FLAT (4, 5, 7) or CURVED (3, 6, 8, 9)
    - Check if shape is OPEN on left side (3) or CLOSED (8)
    - When in doubt between 3 and 4: if the strokes are CURVED → 3; if ANGULAR → 4
+
+   DO NOT SPLIT, MERGE, OR DROP DIGITS — a single digit must not be misread
+   as two digits, two adjacent digits must not merge into one, and digits
+   must not be silently dropped. Common errors:
+   - 9 misread as "30" (loop looks like 3, tail like 0): 49 ≠ 430, 19 ≠ 130
+   - 8 misread as "30" or "80": count loops carefully
+   - "302" collapsed to "50": "3" misread as "5" and "02" merged into "0".
+     Read each digit individually. A 3-digit number cannot become 2-digit.
+   - 6 misread as "0" with a tail: 46 ≠ 40
+
+   READ ALL DIGITS — DO NOT TRUNCATE. Read the COMPLETE number including
+   ALL digits. Do not stop at the first 2 digits and ignore the rest:
+   - "2500" is NOT "25" — the trailing "00" are real digits.
+   - "1500" is NOT "15", "3000" is NOT "30", "500" is NOT "50".
+   - "1250" is NOT "125" and NOT "12" — every digit matters.
+   Trace along the ENTIRE string of digits until you reach a non-digit
+   character. Trailing zeros are real digits, not artifacts.
+
+   COUNT THE DIGITS in a value. If a number appears to have more digits
+   than expected for its feature, re-read it — you may have split a digit.
+   If you read fewer digits than are actually present, re-read — you may
+   have truncated early.
 
 3. Unit Extraction:
    - WRONG: Including unit in value: value: "25.4mm"
@@ -1058,6 +1243,10 @@ def _normalize_dimension_value(value_str) -> Optional[float]:
         (r'(?<=\d)S(?=[\d.])', '5'),   # S between digit and digit/dot -> 5
         # Two disambiguation
         (r'(?<=\d)Z(?=[\d.])', '2'),   # Z between digit and digit/dot -> 2
+        # Four disambiguation (4 vs L — open-top 4 looks like L in technical fonts)
+        (r'(?<=\d)L(?=[\d.])', '4'),   # L between digit and digit/dot -> 4
+        (r'(?<=\d)L$', '4'),           # L at end after digit -> 4 (unless material spec)
+        (r'^L(?=\d)', '4'),            # L at start before digit -> 4
     ]
 
     for pattern, replacement in replacements:
@@ -1144,7 +1333,7 @@ def _validate_font_specific_errors(dimensions: List[Dict]) -> List[Dict]:
         flags = []
 
         # Check for letter contamination (common in Helvetica)
-        if re.search(r'[OoIlSZBb]', value_str):
+        if re.search(r'[OoIlSZBbL]', value_str):
             flags.append("possible_letter_contamination")
 
         # Check for missing decimal — large integers may be mis-reads of decimals
@@ -1491,11 +1680,13 @@ async def _verify_critical_dimensions(
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
                 temperature=0.05,
+                max_output_tokens=8192,
             ),
+            safety_settings=SAFETY_SETTINGS,
             request_options={"timeout": 300},
         )
 
-        corrections = json.loads(response.text)
+        corrections = json.loads(_safe_response_text(response))
         if not isinstance(corrections, list):
             corrections = [corrections] if isinstance(corrections, dict) else []
 
@@ -1599,8 +1790,22 @@ async def run_ingestor(state: AuditState) -> AuditState:
         content_parts.append({"inline_data": img})
     content_parts.append(prompt)
 
+    # Log content parts for debugging
+    logger.info(
+        "Ingestor: sending %s to Gemini (%s, %d content parts)",
+        "rescan" if is_rescan else "extraction",
+        settings.VISION_MODEL, len(content_parts),
+    )
+    for i, part in enumerate(content_parts):
+        if isinstance(part, dict):
+            logger.info(
+                "  Part %d: %s (%dKB)",
+                i, part.get("mime_type", "unknown"), len(part.get("data", "")) // 1024,
+            )
+        else:
+            logger.info("  Part %d: text prompt (%d chars)", i, len(str(part)))
+
     # Retry logic with exponential backoff for rate limiting
-    logger.info("Ingestor: sending %s to Gemini (%s, %d content parts)", "rescan" if is_rescan else "extraction", settings.VISION_MODEL, len(content_parts))
     response = None
     for attempt in range(MAX_RETRIES):
         try:
@@ -1610,7 +1815,9 @@ async def run_ingestor(state: AuditState) -> AuditState:
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
                     temperature=0.1,
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
                 ),
+                safety_settings=SAFETY_SETTINGS,
                 request_options={"timeout": 600},
             )
             break  # Success, exit retry loop
@@ -1626,15 +1833,44 @@ async def run_ingestor(state: AuditState) -> AuditState:
     if response is None:
         raise RuntimeError("Failed to get response from Gemini API")
 
+    # Validate response and extract text (handles safety blocks, truncation, etc.)
+    raw_text = ""
+    try:
+        raw_text, finish_reason = _check_gemini_response(response)
+    except RuntimeError as resp_err:
+        # If safety-blocked, retry with a simplified prompt
+        if "safety" in str(resp_err).lower():
+            logger.warning("Main prompt safety-blocked — retrying with simplified prompt")
+            try:
+                simple_parts = [p for p in content_parts if isinstance(p, dict)]
+                simple_parts.append(SIMPLE_EXTRACTION_PROMPT)
+                retry_response = await model.generate_content_async(
+                    simple_parts,
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1,
+                        max_output_tokens=MAX_OUTPUT_TOKENS,
+                    ),
+                    safety_settings=SAFETY_SETTINGS,
+                    request_options={"timeout": 600},
+                )
+                raw_text, finish_reason = _check_gemini_response(retry_response)
+                logger.info("Simplified prompt retry succeeded (%d chars)", len(raw_text))
+            except Exception as retry_err:
+                logger.error("Simplified prompt retry also failed: %s", retry_err)
+                raise resp_err from retry_err
+        else:
+            raise
+
     # Log raw response for debugging
-    response_len = len(response.text) if response.text else 0
+    response_len = len(raw_text)
     logger.info(f"Gemini response length: {response_len} chars")
     if response_len == 0:
         logger.error("Gemini returned empty response!")
     elif response_len < 500:
-        logger.info(f"Gemini raw response: {response.text}")
+        logger.info(f"Gemini raw response: {raw_text}")
     else:
-        logger.info(f"Gemini response preview: {response.text[:500]}...")
+        logger.info(f"Gemini response preview: {raw_text[:500]}...")
 
     def fix_json(text: str) -> dict:
         """Attempt to fix and parse malformed JSON from Gemini."""
@@ -1701,8 +1937,8 @@ async def run_ingestor(state: AuditState) -> AuditState:
         return {}
 
     try:
-        logger.info(f"Raw Gemini response (first 2000 chars): {response.text[:2000] if response.text else 'None'}")
-        extracted = json.loads(response.text)
+        logger.info(f"Raw Gemini response (first 2000 chars): {raw_text[:2000] if raw_text else 'None'}")
+        extracted = json.loads(raw_text)
         logger.info(f"Parsed type: {type(extracted).__name__}")
         # Gemini sometimes wraps the object in an array — unwrap it
         if isinstance(extracted, list):
@@ -1726,9 +1962,9 @@ async def run_ingestor(state: AuditState) -> AuditState:
         logger.info(f"JSON parsed successfully: {len(extracted.get('dimensions', []))} dimensions")
     except json.JSONDecodeError as e:
         logger.warning(f"JSON parse failed: {e}, attempting fix_json")
-        extracted = fix_json(response.text)
+        extracted = fix_json(raw_text)
         if not extracted or not extracted.get("dimensions"):
-            logger.error(f"fix_json returned empty result, response was: {response.text[:1000] if response.text else 'None'}")
+            logger.error(f"fix_json returned empty result, response was: {raw_text[:1000] if raw_text else 'None'}")
 
     # Phase 0: Normalize text fields (letters in tolerance classes, datums, materials, etc.)
     extracted = _validate_and_normalize_text_fields(extracted)
@@ -1767,6 +2003,34 @@ async def run_ingestor(state: AuditState) -> AuditState:
 
     # Phase 3e: Font-specific error validation
     dimensions = _validate_font_specific_errors(dimensions)
+
+    # Phase 3e2: CNN-based OCR validation (EasyOCR)
+    # Only use CNN for small text or low-confidence scenarios to avoid overhead
+    use_cnn = settings.USE_CNN_OCR and (
+        small_text_info.get("has_small_text") or
+        sum(1 for d in dimensions if d.get("confidence", 1.0) < 0.7) > 3
+    )
+
+    if use_cnn:
+        logger.info("Running hybrid OCR validation (Tesseract + CNN) — small text or low confidence detected")
+        tesseract_dims, cnn_dims = extract_dimensions_hybrid(
+            file_path, use_tesseract=True, use_cnn=True
+        )
+        dimensions = ensemble_validate(
+            dimensions, tesseract_dims, cnn_dims,
+            consensus_threshold=settings.CNN_OCR_CONSENSUS_THRESHOLD
+        )
+    else:
+        logger.info("Skipping CNN OCR (clean image, high confidence) — Tesseract-only verification")
+        tesseract_dims, _ = extract_dimensions_hybrid(
+            file_path, use_tesseract=True, use_cnn=False
+        )
+        dimensions = ensemble_validate(
+            dimensions, tesseract_dims, [],
+            consensus_threshold=1
+        )
+
+    extracted["dimensions"] = dimensions
 
     # Phase 3f: Re-verify suspect dimensions with a focused Gemini pass
     dimensions = await _verify_critical_dimensions(dimensions, image_parts, model)

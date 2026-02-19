@@ -6,6 +6,7 @@ import math
 from typing import Optional, List, Dict, Tuple, Set
 
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from app.config import settings
 from app.agents.state import ComparisonState
@@ -540,6 +541,12 @@ async def _llm_match_dimensions(
                 response_mime_type="application/json",
                 temperature=0.1,
             ),
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            },
             request_options={"timeout": 600},
         )
         # Robust JSON parsing

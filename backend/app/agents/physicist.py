@@ -11,6 +11,7 @@ from typing import Optional
 
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from app.config import settings
 from app.agents.state import AuditState, AuditFinding, FindingType, Severity
@@ -406,6 +407,12 @@ async def run_physicist(state: AuditState) -> AuditState:
                     response_mime_type="application/json",
                     temperature=0.2,
                 ),
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                },
                 request_options={"timeout": 600},
             )
             break  # Success, exit retry loop

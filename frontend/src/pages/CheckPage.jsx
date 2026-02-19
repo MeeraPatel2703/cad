@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { Upload, Loader2, FileText, X } from 'lucide-react'
+import { useState, useRef, useCallback } from 'react'
+import { Upload, Loader2, FileText, X, MapPin } from 'lucide-react'
 import { reviewDrawings } from '../services/api'
 import ReviewReport from '../components/review/ReviewReport'
 import DrawingViewer from '../components/review/DrawingViewer'
@@ -72,11 +72,48 @@ export default function CheckPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [results, setResults] = useState(null)
+  const [selectedItem, setSelectedItem] = useState(null)
+  const [selectedItemData, setSelectedItemData] = useState(null)
 
   const canReview = masterFile && checkFile && !loading
 
   const masterImageUrl = results?.master_id ? `/api/review/image/${results.master_id}` : null
   const checkImageUrl = results?.check_id ? `/api/review/image/${results.check_id}` : null
+
+  const handleItemClick = useCallback((key, item) => {
+    if (selectedItem === key) {
+      setSelectedItem(null)
+      setSelectedItemData(null)
+    } else {
+      setSelectedItem(key)
+      setSelectedItemData(item)
+    }
+  }, [selectedItem])
+
+  // Determine highlight status based on category
+  const getHighlightStatus = (key) => {
+    if (!key) return 'fail'
+    if (key.startsWith('modified')) return 'warning'
+    if (key.startsWith('missing_tol')) return 'warning'
+    return 'fail'
+  }
+
+  const highlightStatus = getHighlightStatus(selectedItem)
+
+  // Build prefixed labels for highlight badges
+  const getMasterLabel = () => {
+    if (!selectedItemData) return ''
+    if (selectedItem?.startsWith('modified')) return `Modified: ${selectedItemData.master_value || ''}`
+    if (selectedItem?.startsWith('missing_tol')) return `Missing Tol: ${selectedItemData.value || ''}`
+    return `Missing: ${selectedItemData.value || ''}`
+  }
+  const getCheckLabel = () => {
+    if (!selectedItemData) return ''
+    if (selectedItem?.startsWith('modified')) return `Modified: ${selectedItemData.check_value || ''}`
+    return ''
+  }
+  const masterLabel = getMasterLabel()
+  const checkLabel = getCheckLabel()
 
   const handleReview = async () => {
     if (!canReview) return
@@ -99,6 +136,8 @@ export default function CheckPage() {
     setCheckFile(null)
     setResults(null)
     setError(null)
+    setSelectedItem(null)
+    setSelectedItemData(null)
   }
 
   return (
@@ -183,15 +222,42 @@ export default function CheckPage() {
             </button>
           </div>
 
+          {/* Location banner */}
+          {selectedItemData && (
+            <div className="flex items-center gap-2 rounded-lg bg-accent/5 border border-accent/20 px-4 py-2.5">
+              <MapPin size={14} className="text-accent shrink-0" />
+              <span className="text-xs text-text-primary font-medium">
+                {selectedItemData.location}
+              </span>
+              <span className="text-[10px] text-text-muted ml-auto">Click again to dismiss</span>
+            </div>
+          )}
+
           {/* Side-by-side drawings */}
           <div className="grid grid-cols-2 gap-4">
-            <DrawingViewer imageUrl={masterImageUrl} label="Master Drawing" />
-            <DrawingViewer imageUrl={checkImageUrl} label="Check Drawing" />
+            <DrawingViewer
+              imageUrl={masterImageUrl}
+              label="Master Drawing"
+              highlightRegion={selectedItemData?.master_region}
+              highlightStatus={highlightStatus}
+              highlightLabel={masterLabel}
+            />
+            <DrawingViewer
+              imageUrl={checkImageUrl}
+              label="Check Drawing"
+              highlightRegion={selectedItemData?.check_region}
+              highlightStatus={highlightStatus}
+              highlightLabel={checkLabel}
+            />
           </div>
 
           {/* Report below */}
           <div className="rounded-xl border border-border bg-bg-panel">
-            <ReviewReport results={results} />
+            <ReviewReport
+              results={results}
+              onItemClick={handleItemClick}
+              selectedItem={selectedItem}
+            />
           </div>
         </div>
       )}

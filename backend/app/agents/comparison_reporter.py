@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from app.config import settings
 from app.agents.state import ComparisonState
@@ -76,6 +77,12 @@ async def run_comparison_reporter(state: ComparisonState) -> ComparisonState:
                 response_mime_type="application/json",
                 temperature=0.3,
             ),
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            },
             request_options={"timeout": 600},
         )
 
